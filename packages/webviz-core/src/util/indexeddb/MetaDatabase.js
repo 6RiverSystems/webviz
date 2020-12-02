@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2019-present, GM Cruise LLC
+//  Copyright (c) 2019-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -50,7 +50,7 @@ const getConfig = (metadataDatabaseName: string) => ({
 // Note: since this runs each time we make a new database when user finally closes all opened tabs
 // the next creation of a database will clean up all the old ones.
 function tryDelete(databaseName: string): Promise<boolean> {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     log.info("Trying to delete old database", databaseName);
     let resolved = false;
     const done = (success: boolean) => {
@@ -114,8 +114,8 @@ export async function updateMetaDatabases(
   maxDatabases: number,
   metadataDatabaseName: string
 ): Promise<void> {
-  log.info("Updating MetaDatabase", {
-    newDatabaseName,
+  log.info("Checking MetaDatabase", {
+    name: newDatabaseName,
   });
   await validateStorageQuota();
 

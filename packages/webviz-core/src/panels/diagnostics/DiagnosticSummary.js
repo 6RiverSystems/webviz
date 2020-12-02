@@ -1,28 +1,32 @@
 // @flow
 //
-//  Copyright (c) 2018-present, GM Cruise LLC
+//  Copyright (c) 2018-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
 //  You may not use this file except in compliance with the License.
 
+import CheckboxBlankOutlineIcon from "@mdi/svg/svg/checkbox-blank-outline.svg";
+import CheckboxMarkedIcon from "@mdi/svg/svg/checkbox-marked.svg";
 import PinIcon from "@mdi/svg/svg/pin.svg";
 import cx from "classnames";
-import { sortBy, compact } from "lodash";
+import { compact } from "lodash";
 import * as React from "react"; // eslint-disable-line import/no-duplicates
 import { hot } from "react-hot-loader/root";
+import { List, AutoSizer } from "react-virtualized";
 
 import type { Config as DiagnosticStatusConfig } from "./DiagnosticStatusPanel";
 import helpContent from "./DiagnosticSummary.help.md";
 import styles from "./DiagnosticSummary.module.scss";
-import { LEVELS, type DiagnosticId, type DiagnosticInfo, getNodesByLevel } from "./util";
+import { LEVELS, type DiagnosticId, type DiagnosticInfo, getDiagnosticsByLevel, getSortedDiagnostics } from "./util";
 import EmptyState from "webviz-core/src/components/EmptyState";
 import Flex from "webviz-core/src/components/Flex";
 import Icon from "webviz-core/src/components/Icon";
-import LargeList from "webviz-core/src/components/LargeList";
+import { Item } from "webviz-core/src/components/Menu";
 import Panel from "webviz-core/src/components/Panel";
 import PanelToolbar from "webviz-core/src/components/PanelToolbar";
 import TopicToRenderMenu from "webviz-core/src/components/TopicToRenderMenu";
+import filterMap from "webviz-core/src/filterMap";
 import { getGlobalHooks } from "webviz-core/src/loadWebviz";
 import DiagnosticsHistory from "webviz-core/src/panels/diagnostics/DiagnosticsHistory";
 import type { Topic } from "webviz-core/src/players/types";
@@ -70,18 +74,12 @@ class NodeRow extends React.PureComponent<NodeRowProps> {
   }
 }
 
-type Config = {| pinnedIds: DiagnosticId[], topicToRender: string, hardwareIdFilter: string |};
+type Config = {| pinnedIds: DiagnosticId[], topicToRender: string, hardwareIdFilter: string, sortByLevel?: boolean |};
 type Props = {
   config: Config,
   saveConfig: ($Shape<Config>) => void,
   openSiblingPanel: (string, cb: (PanelConfig) => PanelConfig) => void,
   topics: Topic[],
-};
-
-const getSortedNodes = (nodes: DiagnosticInfo[], pinnedIds: DiagnosticId[]): DiagnosticInfo[] => {
-  return sortBy(nodes.filter((info) => pinnedIds.indexOf(info.id) === -1), (info) =>
-    info.displayName.replace(/^\//, "")
-  );
 };
 
 class DiagnosticSummary extends React.Component<Props> {
@@ -100,11 +98,12 @@ class DiagnosticSummary extends React.Component<Props> {
           selectedHardwareId: info.status.hardware_id,
           selectedName: info.status.name,
           topicToRender: this.props.config.topicToRender,
+          collapsedSections: [],
         }: DiagnosticStatusConfig)
     );
   };
 
-  renderRow = ({ item, style, key, index }) => {
+  renderRow = ({ item, style, key }) => {
     return (
       <div key={key} style={style}>
         <NodeRow
@@ -140,7 +139,7 @@ class DiagnosticSummary extends React.Component<Props> {
     return (
       <TopicToRenderMenu
         topicToRender={topicToRender}
-        onChange={(topicToRender) => saveConfig({ topicToRender })}
+        onChange={(newTopicToRender) => saveConfig({ topicToRender: newTopicToRender })}
         topics={topics}
         singleTopicDatatype={"diagnostic_msgs/DiagnosticArray"}
         defaultTopicToRender={DIAGNOSTIC_TOPIC}
@@ -148,50 +147,87 @@ class DiagnosticSummary extends React.Component<Props> {
     );
   };
 
+  _renderMenuContent() {
+    const { config, saveConfig } = this.props;
+    const { sortByLevel = true } = config;
+
+    return (
+      <Item
+        icon={sortByLevel ? <CheckboxMarkedIcon /> : <CheckboxBlankOutlineIcon />}
+        onClick={() => saveConfig({ sortByLevel: !sortByLevel })}>
+        Sort by level
+      </Item>
+    );
+  }
+
   render() {
     const {
       config: { topicToRender },
       topics,
     } = this.props;
     return (
-      <DiagnosticsHistory topic={topicToRender}>
-        {(buffer) => {
-          let dataComponent;
-          if (buffer.diagnosticsById.size === 0) {
-            dataComponent = (
-              <EmptyState>
-                Waiting for <code>/diagnostics</code> messages
-              </EmptyState>
-            );
-          } else {
-            const { pinnedIds, hardwareIdFilter } = this.props.config;
-            const pinnedNodes = pinnedIds.map((id) => buffer.diagnosticsById.get(id));
+      <Flex col className={styles.panel}>
+        <PanelToolbar
+          helpContent={helpContent}
+          additionalIcons={this.renderTopicToRenderMenu(topics)}
+          menuContent={this._renderMenuContent()}>
+          {this.renderHardwareFilter()}
+        </PanelToolbar>
+        <Flex col>
+          <DiagnosticsHistory topic={topicToRender}>
+            {(buffer) => {
+              if (buffer.diagnosticsByNameByTrimmedHardwareId.size === 0) {
+                return (
+                  <EmptyState>
+                    Waiting for <code>{topicToRender}</code> messages
+                  </EmptyState>
+                );
+              }
+              const { pinnedIds, hardwareIdFilter, sortByLevel = true } = this.props.config;
+              const pinnedNodes = filterMap(pinnedIds, (id) => {
+                const [_, trimmedHardwareId, name] = id.split("|");
+                const diagnosticsByName = buffer.diagnosticsByNameByTrimmedHardwareId.get(trimmedHardwareId);
+                if (diagnosticsByName == null) {
+                  return;
+                }
+                return diagnosticsByName.get(name);
+              });
 
-            const nodes: DiagnosticInfo[] = [
-              ...compact(pinnedNodes),
-              ...getSortedNodes(getNodesByLevel(buffer, hardwareIdFilter, LEVELS.STALE), pinnedIds),
-              ...getSortedNodes(getNodesByLevel(buffer, hardwareIdFilter, LEVELS.ERROR), pinnedIds),
-              ...getSortedNodes(getNodesByLevel(buffer, hardwareIdFilter, LEVELS.WARN), pinnedIds),
-              ...getSortedNodes(getNodesByLevel(buffer, hardwareIdFilter, LEVELS.OK), pinnedIds),
-            ];
-            dataComponent =
-              nodes.length === 0 ? null : (
-                <LargeList defaultRowHeight={25} items={nodes} disableScrollToBottom renderRow={this.renderRow} />
+              const nodesByLevel = getDiagnosticsByLevel(buffer);
+              const sortedNodes = sortByLevel
+                ? [].concat(
+                    ...[LEVELS.STALE, LEVELS.ERROR, LEVELS.WARN, LEVELS.OK].map((level) =>
+                      getSortedDiagnostics(nodesByLevel[level], hardwareIdFilter, pinnedIds)
+                    )
+                  )
+                : getSortedDiagnostics(
+                    [].concat(
+                      ...[LEVELS.STALE, LEVELS.ERROR, LEVELS.WARN, LEVELS.OK].map((level) => nodesByLevel[level])
+                    ),
+                    hardwareIdFilter,
+                    pinnedIds
+                  );
+
+              const nodes: DiagnosticInfo[] = [...compact(pinnedNodes), ...sortedNodes];
+              return !nodes.length ? null : (
+                <AutoSizer>
+                  {({ height, width }) => (
+                    <List
+                      width={width}
+                      height={height}
+                      style={{ outline: "none" }}
+                      rowHeight={25}
+                      rowRenderer={(rowProps) => this.renderRow({ ...rowProps, item: nodes[rowProps.index] })}
+                      rowCount={nodes.length}
+                      overscanRowCount={10}
+                    />
+                  )}
+                </AutoSizer>
               );
-          }
-
-          return (
-            <Flex col className={styles.panel}>
-              <PanelToolbar helpContent={helpContent} additionalIcons={this.renderTopicToRenderMenu(topics)}>
-                {this.renderHardwareFilter()}
-              </PanelToolbar>
-              <Flex col scroll scrollX>
-                {dataComponent}
-              </Flex>
-            </Flex>
-          );
-        }}
-      </DiagnosticsHistory>
+            }}
+          </DiagnosticsHistory>
+        </Flex>
+      </Flex>
     );
   }
 }

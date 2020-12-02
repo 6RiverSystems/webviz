@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2018-present, GM Cruise LLC
+//  Copyright (c) 2018-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -8,14 +8,16 @@
 
 import type { Time } from "rosbag";
 
+import { CoreDataProviders } from "webviz-core/src/dataProviders/constants";
 import type {
   DataProvider,
   DataProviderDescriptor,
   DataProviderMetadata,
   ExtensionPoint,
   GetDataProvider,
+  GetMessagesResult,
+  GetMessagesTopics,
   InitializationResult,
-  DataProviderMessage,
 } from "webviz-core/src/dataProviders/types";
 import Logger from "webviz-core/src/util/Logger";
 
@@ -27,7 +29,7 @@ export function instrumentTreeWithMeasureDataProvider(
   depth: number = 1
 ): DataProviderDescriptor {
   return {
-    name: "MeasureDataProvider",
+    name: CoreDataProviders.MeasureDataProvider,
     args: { name: `${new Array(depth * 2 + 1).join("-")}> ${treeRoot.name}` },
     children: [
       {
@@ -57,14 +59,15 @@ export default class MeasureDataProvider implements DataProvider {
     return this._provider.initialize(extensionPoint);
   }
 
-  async getMessages(start: Time, end: Time, topics: string[]): Promise<DataProviderMessage[]> {
+  async getMessages(start: Time, end: Time, topics: GetMessagesTopics): Promise<GetMessagesResult> {
     const startMs = Date.now();
     const argsString = `${start.sec}.${start.nsec}, ${end.sec}.${end.nsec}`;
     const result = await this._provider.getMessages(start, end, topics);
+    const { parsedMessages, rosBinaryMessages, bobjects } = result;
+    const numMessages = (parsedMessages?.length || 0) + (rosBinaryMessages?.length || 0) + (bobjects?.length || 0);
     log.info(
-      `MeasureDataProvider(${this._name}): ${Date.now() - startMs}ms for ${
-        result.length
-      } messages from getMessages(${argsString})`
+      `MeasureDataProvider(${this._name}): ${Date.now() -
+        startMs}ms for ${numMessages} messages from getMessages(${argsString})`
     );
     return result;
   }

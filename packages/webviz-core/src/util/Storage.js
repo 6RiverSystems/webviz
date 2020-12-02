@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2018-present, GM Cruise LLC
+//  Copyright (c) 2018-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -28,7 +28,7 @@ export default class Storage {
       // suppress logging during tests - otherwise it prints out a stack trace
       // which makes it look like a test is failing
       if (process.env.NODE_ENV !== "test") {
-        console.error("Unable to retreive key", key, "from storage", e);
+        console.error("Unable to retrieve key", key, "from storage", e);
       }
       return undefined;
     }

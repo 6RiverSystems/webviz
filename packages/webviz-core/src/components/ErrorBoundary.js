@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2018-present, GM Cruise LLC
+//  Copyright (c) 2018-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -13,6 +13,7 @@ import styled from "styled-components";
 import Button from "webviz-core/src/components/Button";
 import Flex from "webviz-core/src/components/Flex";
 import PanelToolbar from "webviz-core/src/components/PanelToolbar";
+import { AppError } from "webviz-core/src/util/errors";
 
 const Heading = styled.div`
   font-size: 1.2em;
@@ -42,9 +43,7 @@ export default class ErrorBoundary extends React.Component<{ children: React.Nod
   };
 
   componentDidCatch(error: Error, errorInfo: any) {
-    Sentry.captureException(error, {
-      extra: errorInfo,
-    });
+    Sentry.captureException(new AppError(error, errorInfo));
     this.setState({ error, errorInfo });
   }
 

@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2019-present, GM Cruise LLC
+//  Copyright (c) 2019-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -15,7 +15,7 @@ import React from "react";
 import Icon from "webviz-core/src/components/Icon";
 import type { Diagnostic } from "webviz-core/src/players/UserNodePlayer/types";
 import { DiagnosticSeverity } from "webviz-core/src/players/UserNodePlayer/types";
-import { colors } from "webviz-core/src/util/colors";
+import { colors } from "webviz-core/src/util/sharedStyleConstants";
 
 const severityColors = {
   Hint: colors.YELLOWL1,
@@ -38,12 +38,12 @@ type Props = {
 const DiagnosticsSection = ({ diagnostics }: Props) => {
   return diagnostics.length ? (
     <ul>
-      {diagnostics.map(({ severity, message, source, startColumn = null, startLineNumber = null }) => {
+      {diagnostics.map(({ severity, message, source, startColumn = null, startLineNumber = null }, i) => {
         const severityLabel = invert(DiagnosticSeverity)[severity];
         const errorLoc =
           startLineNumber != null && startColumn != null ? `[${startLineNumber + 1},${startColumn + 1}]` : null;
         return (
-          <li key={message}>
+          <li key={`${message}_${i}`}>
             <Icon tooltip="Severity" small style={{ color: severityColors[severityLabel] }} active>
               {severityIcons[severityLabel]}
             </Icon>

@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2019-present, GM Cruise LLC
+//  Copyright (c) 2019-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -8,11 +8,10 @@
 
 import { storiesOf } from "@storybook/react";
 import * as React from "react";
-import { withScreenshot } from "storybook-chrome-screenshot";
 
 import TextField from "./TextField";
+import { createPrimitiveValidator, hasLen } from "webviz-core/shared/validators";
 import Flex from "webviz-core/src/components/Flex";
-import { createPrimitiveValidator, hasLen } from "webviz-core/src/components/validators";
 import { triggerInputChange, triggerInputBlur } from "webviz-core/src/stories/PanelSetup";
 
 const validator = createPrimitiveValidator([hasLen(4)]);
@@ -83,40 +82,38 @@ function ValidateOnBlurExample() {
   );
 }
 
-storiesOf("<TextField>", module)
-  .addDecorator(withScreenshot())
-  .add("default", () => {
-    return (
-      <Flex wrap>
-        <Box title="default">
-          <TextField />
-        </Box>
-        <Box title="placeholder, label and custom styles">
-          <TextField
-            label="Name"
-            placeholder="type something..."
-            style={{ border: "1px solid green", padding: 4 }}
-            inputStyle={{ border: "2px solid blue" }}
-          />
-        </Box>
-        <Box title="controlled">
-          <ControlledExample />
-        </Box>
-        <Box title="uncontrolled">
-          <UncontrolledExample />
-        </Box>
-        <Box title="focusOnMount">
-          <TextField defaultValue="foo" focusOnMount />
-        </Box>
-        <Box title="use hideInlineError to show custom error UI">
-          <ErrorExample />
-        </Box>
-        <Box title="by default, validate on mount">
-          <TextField value="foo" validator={validator} />
-        </Box>
-        <Box title="use validateOnBlur to reduce updates">
-          <ValidateOnBlurExample />
-        </Box>
-      </Flex>
-    );
-  });
+storiesOf("<TextField>", module).add("default", () => {
+  return (
+    <Flex wrap>
+      <Box title="default">
+        <TextField />
+      </Box>
+      <Box title="placeholder, label and custom styles">
+        <TextField
+          label="Name"
+          placeholder="type something..."
+          style={{ border: "1px solid green", padding: 4 }}
+          inputStyle={{ border: "2px solid blue" }}
+        />
+      </Box>
+      <Box title="controlled">
+        <ControlledExample />
+      </Box>
+      <Box title="uncontrolled">
+        <UncontrolledExample />
+      </Box>
+      <Box title="focusOnMount">
+        <TextField defaultValue="foo" focusOnMount />
+      </Box>
+      <Box title="use hideInlineError to show custom error UI">
+        <ErrorExample />
+      </Box>
+      <Box title="by default, validate on mount">
+        <TextField value="foo" validator={validator} />
+      </Box>
+      <Box title="use validateOnBlur to reduce updates">
+        <ValidateOnBlurExample />
+      </Box>
+    </Flex>
+  );
+});

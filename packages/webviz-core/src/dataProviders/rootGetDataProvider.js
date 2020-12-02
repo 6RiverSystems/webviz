@@ -1,10 +1,11 @@
 // @flow
 //
-//  Copyright (c) 2019-present, GM Cruise LLC
+//  Copyright (c) 2019-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
 //  You may not use this file except in compliance with the License.
+
 import ApiCheckerDataProvider, {
   instrumentTreeWithApiCheckerDataProvider,
 } from "webviz-core/src/dataProviders/ApiCheckerDataProvider";
@@ -17,6 +18,8 @@ import MeasureDataProvider, {
 } from "webviz-core/src/dataProviders/MeasureDataProvider";
 import MemoryCacheDataProvider from "webviz-core/src/dataProviders/MemoryCacheDataProvider";
 import ParseMessagesDataProvider from "webviz-core/src/dataProviders/ParseMessagesDataProvider";
+import RenameDataProvider from "webviz-core/src/dataProviders/RenameDataProvider";
+import RewriteBinaryDataProvider from "webviz-core/src/dataProviders/RewriteBinaryDataProvider";
 import type { DataProviderDescriptor, DataProvider } from "webviz-core/src/dataProviders/types";
 import WorkerDataProvider from "webviz-core/src/dataProviders/WorkerDataProvider";
 import { getGlobalHooks } from "webviz-core/src/loadWebviz";
@@ -25,12 +28,14 @@ import { MEASURE_DATA_PROVIDERS_QUERY_KEY } from "webviz-core/src/util/globalCon
 const getDataProviderBase = createGetDataProvider({
   ApiCheckerDataProvider,
   BagDataProvider,
-  MeasureDataProvider,
-  ParseMessagesDataProvider,
-  WorkerDataProvider,
-  IdbCacheReaderDataProvider,
-  MemoryCacheDataProvider,
   CombinedDataProvider,
+  IdbCacheReaderDataProvider,
+  MeasureDataProvider,
+  MemoryCacheDataProvider,
+  ParseMessagesDataProvider,
+  RenameDataProvider,
+  RewriteBinaryDataProvider,
+  WorkerDataProvider,
   ...getGlobalHooks().getAdditionalDataProviders(),
 });
 

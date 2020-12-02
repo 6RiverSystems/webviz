@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2018-present, GM Cruise LLC
+//  Copyright (c) 2018-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -11,7 +11,7 @@ import MenuDownIcon from "@mdi/svg/svg/menu-down.svg";
 import MenuLeftIcon from "@mdi/svg/svg/menu-left.svg";
 import CompassOutlineIcon from "@mdi/svg/svg/navigation.svg";
 import { sortBy, debounce } from "lodash";
-import React, { memo, createRef, useCallback, useEffect, useState } from "react";
+import React, { memo, createRef, useCallback, useState } from "react";
 import shallowequal from "shallowequal";
 import styled from "styled-components";
 
@@ -21,6 +21,7 @@ import Button from "webviz-core/src/components/Button";
 import Icon from "webviz-core/src/components/Icon";
 import { getGlobalHooks } from "webviz-core/src/loadWebviz";
 import colors from "webviz-core/src/styles/colors.module.scss";
+import { objectValues } from "webviz-core/src/util";
 
 type TfTreeNode = {
   tf: Transform,
@@ -62,10 +63,8 @@ const buildTfTree = (transforms: Transform[]): TfTree => {
     }
   }
 
-  // Cast the list to satisfy flow (because Object.values returns array of mixed).
-  const allNodes = ((Object.values(tree.nodes): any): TfTreeNode[]);
   // Do a final pass sorting all the children lists.
-  for (const node of allNodes) {
+  for (const node of objectValues(tree.nodes)) {
     node.children = sortBy(node.children, treeNodeToTfId);
   }
   tree.roots = sortBy(tree.roots, treeNodeToTfId);
@@ -75,9 +74,7 @@ const buildTfTree = (transforms: Transform[]): TfTree => {
     node.depth = depth;
     node.children.forEach((child) => setDepth(child, depth + 1));
   };
-  tree.roots.forEach((root) =>
-    setDepth(root, root.tf.id === getGlobalHooks().perPanelHooks().ThreeDimensionalViz.rootTransformFrame ? -1 : 0)
-  );
+  tree.roots.forEach((root) => setDepth(root, 0));
 
   return tree;
 };
@@ -91,9 +88,7 @@ type Props = {
 
 function* getDescendants(nodes: TfTreeNode[]) {
   for (const node of nodes) {
-    if (node.tf.id !== getGlobalHooks().perPanelHooks().ThreeDimensionalViz.rootTransformFrame) {
-      yield node;
-    }
+    yield node;
     yield* getDescendants(node.children);
   }
 }
@@ -136,12 +131,6 @@ const FollowTFControl = memo<Props>((props: Props) => {
 
   const autocomplete = createRef<Autocomplete>();
 
-  useEffect(() => {
-    if (nodesWithoutDefaultFollowTfFrame && !tfToFollow) {
-      onFollowChange(newFollowTfFrame);
-    }
-  });
-
   const getDefaultFollowTransformFrame = useCallback(
     () => {
       return nodesWithoutDefaultFollowTfFrame ? newFollowTfFrame : defaultFollowTfFrame;
@@ -180,10 +169,10 @@ const FollowTFControl = memo<Props>((props: Props) => {
   );
 
   const onSelectFrame = useCallback(
-    (id: string, item: mixed, autocomplete: Autocomplete) => {
+    (id: string, item: mixed, autocompleteNode: Autocomplete) => {
       setLastSelectedFrame(id === getDefaultFollowTransformFrame() ? undefined : id);
       onFollowChange(id, followOrientation);
-      autocomplete.blur();
+      autocompleteNode.blur();
     },
     [setLastSelectedFrame, getDefaultFollowTransformFrame, onFollowChange, followOrientation]
   );

@@ -1,117 +1,145 @@
 // @flow
 //
-//  Copyright (c) 2018-present, GM Cruise LLC
+//  Copyright (c) 2018-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
 //  You may not use this file except in compliance with the License.
 
-import { cloneDeep } from "lodash";
+import { flatten } from "lodash";
 
-import { getCSVData, getHeader } from "./PlotMenu";
+import { getCSVData } from "./PlotMenu";
+import { getDatasetsAndTooltips } from "webviz-core/src/panels/Plot/PlotChart";
 
-const data = [
+const getDatasetAndTooltipsParameters = [
+  [
+    {
+      value: "/some_topic.ok",
+      enabled: true,
+      timestampMethod: "headerStamp",
+    },
+    {
+      value: "",
+      enabled: true,
+      timestampMethod: "headerStamp",
+    },
+  ],
+  {
+    "/some_topic.ok": [
+      [
+        {
+          receiveTime: {
+            sec: 1570207539,
+            nsec: 81366108,
+          },
+          headerStamp: {
+            sec: 1570207538,
+            nsec: 950411000,
+          },
+          queriedData: [
+            {
+              value: true,
+              path: "/some_topic.ok",
+            },
+          ],
+        },
+        {
+          receiveTime: {
+            sec: 1570207539,
+            nsec: 178513840,
+          },
+          headerStamp: {
+            sec: 1570207539,
+            nsec: 50344000,
+          },
+          queriedData: [
+            {
+              value: true,
+              path: "/some_topic.ok",
+            },
+          ],
+        },
+      ],
+    ],
+    "": [],
+  },
+  {
+    sec: 1570207539,
+    nsec: 138873,
+  },
+  "timestamp",
+];
+const { tooltips: trackedObjectsTooltips, datasets: trackedObjectsDatasets } = getDatasetsAndTooltips(
+  ...getDatasetAndTooltipsParameters
+);
+
+const tooltips = [
   {
     x: 0.010651803000000001,
     y: 0,
-    tooltip: {
-      constantName: "",
-      item: {
-        message: {
-          op: "message",
-          topic: "/accel_vector_calibrated",
-          datatype: "imu_messages/IMUSensor",
-          receiveTime: {
-            sec: 1547062466,
-            nsec: 10664222,
-          },
-          message: {
-            header: {
-              seq: 475838,
-              stamp: {
-                sec: 1547062466,
-                nsec: 9726015,
-              },
-              frame_id: "",
-            },
-            using_gps_time: false,
-            vector: {
-              x: -1.6502913414892997,
-              y: 0.013979224999911806,
-              z: 9.956832079451333,
-            },
-          },
-        },
-        queriedData: [
-          {
-            constantName: "",
-            value: false,
-            path: "/accel_vector_calibrated.using_gps_time",
-          },
-        ],
-      },
-      path: "/accel_vector_calibrated.using_gps_time",
-      value: false,
-      startTime: {
+    datasetKey: "default",
+    constantName: "",
+    item: {
+      receiveTime: {
         sec: 1547062466,
-        nsec: 12419,
+        nsec: 10664222,
       },
+      headerStamp: {
+        sec: 1547062466,
+        nsec: 9726015,
+      },
+      queriedData: [
+        {
+          constantName: "",
+          value: false,
+          path: "/accel_vector_calibrated.using_gps_time",
+        },
+      ],
+    },
+    path: "/accel_vector_calibrated.using_gps_time",
+    value: false,
+    startTime: {
+      sec: 1547062466,
+      nsec: 12419,
     },
   },
   {
     x: 0.031882799,
     y: 0,
-    tooltip: {
-      constantName: "",
-      item: {
-        message: {
-          op: "message",
-          topic: "/accel_vector_calibrated",
-          datatype: "imu_messages/IMUSensor",
-          receiveTime: {
-            sec: 1547062466,
-            nsec: 31895218,
-          },
-          message: {
-            header: {
-              seq: 475839,
-              stamp: {
-                sec: 1547062466,
-                nsec: 31719273,
-              },
-              frame_id: "",
-            },
-            using_gps_time: false,
-            vector: {
-              x: -1.6793369565819012,
-              y: 0.04327456632615036,
-              z: 10.0864057092908,
-            },
-          },
-        },
-        queriedData: [
-          {
-            constantName: "",
-            value: false,
-            path: "/accel_vector_calibrated.using_gps_time",
-          },
-        ],
-      },
-      path: "/accel_vector_calibrated.using_gps_time",
-      value: false,
-      startTime: {
+    datasetKey: "default",
+    constantName: "",
+    item: {
+      receiveTime: {
         sec: 1547062466,
-        nsec: 12419,
+        nsec: 31895218,
       },
+      headerStamp: {
+        sec: 1547062466,
+        nsec: 31719273,
+      },
+      queriedData: [
+        {
+          constantName: "",
+          value: false,
+          path: "/accel_vector_calibrated.using_gps_time",
+        },
+      ],
+    },
+    path: "/accel_vector_calibrated.using_gps_time",
+    value: false,
+    startTime: {
+      sec: 1547062466,
+      nsec: 12419,
     },
   },
 ];
+const data = tooltips.map(({ x, y }) => ({ x, y }));
 
-const datasets_single_topic = [
+const datasetsSingleTopic = [
   {
     borderColor: "#4e98e2",
     label: "/accel_vector_calibrated.using_gps_time",
-    key: "0",
+    key: "default",
     showLine: true,
     fill: false,
     borderWidth: 1,
@@ -123,100 +151,76 @@ const datasets_single_topic = [
   },
 ];
 
-const datasets_multiple_topics = [1, 2, 3].map((num) => {
-  const numData = data.map((perData) => {
-    const newData = cloneDeep(perData);
-    newData.x = perData.x + num;
-    newData.y = perData.y + num;
-    return newData;
-  });
-  return {
-    borderColor: "#4e98e2",
-    label: `/topic${num}`,
-    key: "0",
-    showLine: true,
-    fill: false,
-    borderWidth: 1,
-    pointRadius: 1.5,
-    pointHoverRadius: 3,
-    pointBackgroundColor: "#74beff",
-    pointBorderColor: "transparent",
-    data: numData,
-  };
-});
+const datasetsMultipleTopics = [1, 2, 3].map((num) => ({
+  borderColor: "#4e98e2",
+  label: `/topic${num}`,
+  key: `dataset-${num}`,
+  showLine: true,
+  fill: false,
+  borderWidth: 1,
+  pointRadius: 1.5,
+  pointHoverRadius: 3,
+  pointBackgroundColor: "#74beff",
+  pointBorderColor: "transparent",
+  data: data.map(({ x, y }) => ({ x: x + num, y: y + num })),
+}));
 
-const datasets_no_header = [1, 2, 3].map((num) => {
-  const numData = data.map((perData) => {
-    const newData = cloneDeep(perData);
-    newData.x = perData.x + num;
-    newData.y = perData.y + num;
-    if (num === 3) {
-      delete newData.tooltip.item.message.message.header;
-    }
-    return newData;
-  });
-  return {
-    borderColor: "#4e98e2",
-    label: `/topic${num}`,
-    key: "0",
-    showLine: true,
-    fill: false,
-    borderWidth: 1,
-    pointRadius: 1.5,
-    pointHoverRadius: 3,
-    pointBackgroundColor: "#74beff",
-    pointBorderColor: "transparent",
-    data: numData,
-  };
-});
+const tooltipsMultipleTopics = flatten(
+  [1, 2, 3].map((num) =>
+    tooltips.map((tooltip) => ({
+      ...tooltip,
+      datasetKey: `dataset-${num}`,
+    }))
+  )
+);
 
-const datasets_diff_timestamp = [1, 2, 3].map((num) => {
-  const numData = data.map((perData) => {
-    const newData = cloneDeep(perData);
-    newData.x = perData.x + num;
-    newData.y = perData.y + num;
-    newData.tooltip.item.message.message.header.stamp.sec = perData.tooltip.item.message.message.header.stamp.sec + num;
-    return newData;
-  });
-  return {
-    borderColor: "#4e98e2",
-    label: `/topic${num}`,
-    key: "0",
-    showLine: true,
-    fill: false,
-    borderWidth: 1,
-    pointRadius: 1.5,
-    pointHoverRadius: 3,
-    pointBackgroundColor: "#74beff",
-    pointBorderColor: "transparent",
-    data: numData,
-  };
-});
+const tooltipsNoHeader = flatten(
+  [1, 2, 3].map((num) =>
+    tooltips.map((tooltip) => ({
+      ...tooltip,
+      datasetKey: `dataset-${num}`,
+      item: {
+        ...tooltip.item,
+        headerStamp: num === 3 ? undefined : tooltip.item.headerStamp,
+      },
+    }))
+  )
+);
+
+const tooltipsDiffTimestamp = flatten(
+  [1, 2, 3].map((num) =>
+    tooltips.map((tooltip) => ({
+      ...tooltip,
+      datasetKey: `dataset-${num}`,
+      item: {
+        ...tooltip.item,
+        headerStamp: tooltip.item.headerStamp && {
+          ...tooltip.item.headerStamp,
+          sec: tooltip.item.headerStamp.sec + num,
+        },
+      },
+    }))
+  )
+);
 
 describe("PlotMenu", () => {
   it("Single topic", () => {
-    expect(getCSVData(datasets_single_topic)).toMatchSnapshot();
+    expect(getCSVData(datasetsSingleTopic, tooltips, "timestamp")).toMatchSnapshot();
   });
 
   it("Multiple topics", () => {
-    expect(getCSVData(datasets_multiple_topics)).toMatchSnapshot();
+    expect(getCSVData(datasetsMultipleTopics, tooltipsMultipleTopics, "timestamp")).toMatchSnapshot();
   });
 
   it("Multiple topics with one topic don't have header.stamp", () => {
-    expect(getCSVData(datasets_no_header)).toMatchSnapshot();
+    expect(getCSVData(datasetsMultipleTopics, tooltipsNoHeader, "timestamp")).toMatchSnapshot();
   });
 
   it("Multiple topics with different header.stamp", () => {
-    expect(getCSVData(datasets_diff_timestamp)).toMatchSnapshot();
+    expect(getCSVData(datasetsMultipleTopics, tooltipsDiffTimestamp, "timestamp")).toMatchSnapshot();
   });
 
-  it("get right header", () => {
-    const message = {
-      whatever_header: {
-        sec: 123,
-        nsec: 456,
-      },
-    };
-    expect(getHeader(message)).toEqual({ sec: 123, nsec: 456 });
+  it("works with data directly from getDatasetsAndTooltips", () => {
+    expect(getCSVData(trackedObjectsDatasets, trackedObjectsTooltips, "timestamp")).toMatchSnapshot();
   });
 });

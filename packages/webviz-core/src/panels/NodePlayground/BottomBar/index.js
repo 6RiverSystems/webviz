@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2019-present, GM Cruise LLC
+//  Copyright (c) 2019-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -15,7 +15,7 @@ import Flex from "webviz-core/src/components/Flex";
 import DiagnosticsSection from "webviz-core/src/panels/NodePlayground/BottomBar/DiagnosticsSection";
 import LogsSection from "webviz-core/src/panels/NodePlayground/BottomBar/LogsSection";
 import type { Diagnostic, UserNodeLog } from "webviz-core/src/players/UserNodePlayer/types";
-import { colors } from "webviz-core/src/util/colors";
+import { colors } from "webviz-core/src/util/sharedStyleConstants";
 
 const SHeaderItem = styled.div`
   cursor: pointer;
@@ -108,6 +108,7 @@ const BottomBar = ({ nodeId, isSaved, save, diagnostics, logs }: Props) => {
           style={{ padding: "2px 4px" }}
           primary={!isSaved}
           disabled={isSaved}
+          tooltip={"ctrl/cmd + s"}
           onClick={() => {
             if (nodeId) {
               save();

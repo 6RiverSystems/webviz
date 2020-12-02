@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2019-present, GM Cruise LLC
+//  Copyright (c) 2019-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -8,7 +8,6 @@
 
 import { storiesOf } from "@storybook/react";
 import React from "react";
-import { withScreenshot } from "storybook-chrome-screenshot";
 
 import UnlinkGlobalVariables from "./UnlinkGlobalVariables";
 import PanelSetup from "webviz-core/src/stories/PanelSetup";
@@ -36,32 +35,30 @@ const linkedGlobalVariables = [
   },
 ];
 
-storiesOf("<UnlinkGlobalVariables>", module)
-  .addDecorator(withScreenshot())
-  .add("default", () => {
-    return (
-      <PanelSetup
-        fixture={{
-          topics: [],
-          datatypes: {},
-          frame: {},
-          linkedGlobalVariables,
-          globalVariables: {
-            scaleY: 2.4,
-            fooScaleX: 3,
-          },
-        }}>
-        <div
-          ref={(el) => {
-            if (el) {
-              const btn = el.querySelector("[data-test='unlink-some_id']");
-              if (btn) {
-                btn.click();
-              }
+storiesOf("<UnlinkGlobalVariables>", module).add("default", () => {
+  return (
+    <PanelSetup
+      fixture={{
+        topics: [],
+        datatypes: {},
+        frame: {},
+        linkedGlobalVariables,
+        globalVariables: {
+          scaleY: 2.4,
+          fooScaleX: 3,
+        },
+      }}>
+      <div
+        ref={(el) => {
+          if (el) {
+            const btn = el.querySelector("[data-test='unlink-some_id']");
+            if (btn) {
+              btn.click();
             }
-          }}>
-          <UnlinkGlobalVariables name="some_id" />
-        </div>
-      </PanelSetup>
-    );
-  });
+          }
+        }}>
+        <UnlinkGlobalVariables name="some_id" />
+      </div>
+    </PanelSetup>
+  );
+});

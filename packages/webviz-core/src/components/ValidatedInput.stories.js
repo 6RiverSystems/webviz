@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2019-present, GM Cruise LLC
+//  Copyright (c) 2019-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -9,11 +9,10 @@
 import { storiesOf } from "@storybook/react";
 import * as React from "react";
 import { DEFAULT_CAMERA_STATE } from "regl-worldview";
-import { withScreenshot } from "storybook-chrome-screenshot";
 
 import ValidatedInput, { EDIT_FORMAT, type EditFormat } from "./ValidatedInput";
+import { createValidator, isNumber, type ValidationResult } from "webviz-core/shared/validators";
 import Flex from "webviz-core/src/components/Flex";
-import { createValidator, isNumber, type ValidationResult } from "webviz-core/src/components/validators";
 import { triggerInputChange, triggerInputBlur } from "webviz-core/src/stories/PanelSetup";
 
 const INPUT_OBJ = { id: 1, name: "foo" };
@@ -73,7 +72,6 @@ function Example({
 }
 
 storiesOf("<ValidatedInput>", module)
-  .addDecorator(withScreenshot())
   .add("default", () => {
     return (
       <Flex>

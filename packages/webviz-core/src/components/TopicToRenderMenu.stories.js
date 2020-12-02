@@ -1,13 +1,12 @@
 // @flow
 //
-//  Copyright (c) 2019-present, GM Cruise LLC
+//  Copyright (c) 2019-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
 //  You may not use this file except in compliance with the License.
 import { storiesOf } from "@storybook/react";
 import * as React from "react";
-import { withScreenshot } from "storybook-chrome-screenshot";
 
 import TopicToRenderMenu from "webviz-core/src/components/TopicToRenderMenu";
 import PanelSetup from "webviz-core/src/stories/PanelSetup";
@@ -18,11 +17,11 @@ const topics = [
     datatype: "abc_msgs/foo",
   },
   {
-    name: "/webviz_bag_2/foo",
+    name: "/webviz_source_2/foo",
     datatype: "abc_msgs/foo",
   },
   {
-    name: "/webviz_bag_2/foo",
+    name: "/webviz_source_2/foo",
     datatype: "bad_datatype/abc_msgs/foo",
   },
 ];
@@ -41,7 +40,6 @@ const topicsGroups = [
 ];
 
 storiesOf("<TopicToRenderMenu>", module)
-  .addDecorator(withScreenshot())
   .add("example (have topicsGroups)", () => {
     return (
       <PanelSetup
@@ -94,7 +92,7 @@ storiesOf("<TopicToRenderMenu>", module)
         }}>
         <TopicToRenderMenu
           onChange={() => {}}
-          topicToRender="/webviz_bag_2/foo"
+          topicToRender="/webviz_source_2/foo"
           topics={topics}
           singleTopicDatatype={"abc_msgs/foo"}
           defaultTopicToRender="/foo"
@@ -134,7 +132,7 @@ storiesOf("<TopicToRenderMenu>", module)
         }}>
         <TopicToRenderMenu
           onChange={() => {}}
-          topicToRender="/webviz_bag_2"
+          topicToRender="/webviz_source_2"
           topics={[]}
           topicsGroups={topicsGroups}
           defaultTopicToRender=""

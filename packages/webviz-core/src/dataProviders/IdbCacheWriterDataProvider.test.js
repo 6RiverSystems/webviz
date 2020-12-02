@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2019-present, GM Cruise LLC
+//  Copyright (c) 2019-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -13,28 +13,34 @@ import { getIdbCacheDataProviderDatabase, MESSAGES_STORE_NAME, TIMESTAMP_INDEX }
 import IdbCacheWriterDataProvider, { BLOCK_SIZE_NS } from "./IdbCacheWriterDataProvider";
 import MemoryDataProvider from "webviz-core/src/dataProviders/MemoryDataProvider";
 import { mockExtensionPoint } from "webviz-core/src/dataProviders/mockExtensionPoint";
-import type { DataProviderMessage } from "webviz-core/src/dataProviders/types";
+import type { Message, TypedMessage } from "webviz-core/src/players/types";
 import { getDatabasesInTests } from "webviz-core/src/util/indexeddb/getDatabasesInTests";
 import naturalSort from "webviz-core/src/util/naturalSort";
 
-function sortMessages(messages: DataProviderMessage[]) {
+function sortMessages(messages: Message[]) {
   return messages.sort((a, b) => TimeUtil.compare(a.receiveTime, b.receiveTime) || naturalSort()(a.topic, b.topic));
 }
 
-function generateMessages(topics: string[]): DataProviderMessage[] {
+function generateMessages(topics: string[]): TypedMessage<ArrayBuffer>[] {
   return sortMessages(
     flatten(
       topics.map((topic) => [
-        { topic, receiveTime: { sec: 100, nsec: 0 }, message: 0 },
-        { topic, receiveTime: { sec: 101, nsec: 0 }, message: 1 },
-        { topic, receiveTime: { sec: 102, nsec: 0 }, message: 2 },
+        { topic, receiveTime: { sec: 100, nsec: 0 }, message: new ArrayBuffer(0) },
+        { topic, receiveTime: { sec: 101, nsec: 0 }, message: new ArrayBuffer(1) },
+        { topic, receiveTime: { sec: 102, nsec: 0 }, message: new ArrayBuffer(2) },
       ])
     )
   );
 }
 
 function getProvider() {
-  const memoryDataProvider = new MemoryDataProvider({ messages: generateMessages(["/foo", "/bar", "/baz"]) });
+  const memoryDataProvider = new MemoryDataProvider({
+    messages: {
+      rosBinaryMessages: generateMessages(["/foo", "/bar", "/baz"]),
+      parsedMessages: undefined,
+      bobjects: undefined,
+    },
+  });
   const provider = new IdbCacheWriterDataProvider(
     { id: "some-id" },
     [{ name: "MemoryDataProvider", args: {}, children: [] }],
@@ -55,7 +61,11 @@ describe("IdbCacheWriterDataProvider", () => {
       start: { nsec: 0, sec: 100 },
       end: { nsec: 0, sec: 102 },
       topics: [],
-      datatypes: {},
+      messageDefinitions: {
+        type: "raw",
+        messageDefinitionsByTopic: {},
+      },
+      providesParsedMessages: false,
     });
   });
 
@@ -77,11 +87,15 @@ describe("IdbCacheWriterDataProvider", () => {
     const mockProgressCallback = jest.spyOn(extensionPoint, "progressCallback");
 
     await provider.initialize(extensionPoint);
-    const emptyArray = await provider.getMessages({ sec: 100, nsec: 0 }, { sec: 102, nsec: 0 }, ["/foo"]);
+    const emptyArray = await provider.getMessages(
+      { sec: 100, nsec: 0 },
+      { sec: 102, nsec: 0 },
+      { rosBinaryMessages: ["/foo"] }
+    );
 
     // See comment in previous test for why we make this many calls.
     expect(mockProgressCallback.mock.calls.length).toEqual(4 + 4e9 / BLOCK_SIZE_NS);
-    expect(emptyArray).toEqual([]);
+    expect(emptyArray).toEqual({ bobjects: undefined, parsedMessages: undefined, rosBinaryMessages: [] });
 
     const db = await getIdbCacheDataProviderDatabase("some-id");
     const messages = await db.getRange(MESSAGES_STORE_NAME, TIMESTAMP_INDEX, 0, 2e9);
@@ -92,10 +106,18 @@ describe("IdbCacheWriterDataProvider", () => {
     const { provider } = getProvider();
 
     await provider.initialize(mockExtensionPoint().extensionPoint);
-    await provider.getMessages({ sec: 100, nsec: 0 }, { sec: 102, nsec: 0 }, ["/foo"]);
-    await provider.getMessages({ sec: 100, nsec: 0 }, { sec: 102, nsec: 0 }, ["/foo", "/bar"]);
-    await provider.getMessages({ sec: 101, nsec: 0 }, { sec: 102, nsec: 0 }, ["/foo", "/bar", "/baz"]);
-    await provider.getMessages({ sec: 100, nsec: 0 }, { sec: 102, nsec: 0 }, ["/foo", "/bar", "/baz"]);
+    await provider.getMessages({ sec: 100, nsec: 0 }, { sec: 102, nsec: 0 }, { rosBinaryMessages: ["/foo"] });
+    await provider.getMessages({ sec: 100, nsec: 0 }, { sec: 102, nsec: 0 }, { rosBinaryMessages: ["/foo", "/bar"] });
+    await provider.getMessages(
+      { sec: 101, nsec: 0 },
+      { sec: 102, nsec: 0 },
+      { rosBinaryMessages: ["/foo", "/bar", "/baz"] }
+    );
+    await provider.getMessages(
+      { sec: 100, nsec: 0 },
+      { sec: 102, nsec: 0 },
+      { rosBinaryMessages: ["/foo", "/bar", "/baz"] }
+    );
 
     const db = await getIdbCacheDataProviderDatabase("some-id");
     const messages = await db.getRange(MESSAGES_STORE_NAME, TIMESTAMP_INDEX, 0, 2e9);
@@ -113,11 +135,27 @@ describe("IdbCacheWriterDataProvider", () => {
     jest.spyOn(extensionPoint, "progressCallback");
 
     await provider.initialize(extensionPoint);
-    const getMessagesPromise1 = provider.getMessages({ sec: 100, nsec: 0 }, { sec: 102, nsec: 0 }, ["/foo"]);
-    const getMessagesPromise2 = provider.getMessages({ sec: 100, nsec: 0 }, { sec: 102, nsec: 0 }, ["/foo", "/bar"]);
+    const getMessagesPromise1 = provider.getMessages(
+      { sec: 100, nsec: 0 },
+      { sec: 102, nsec: 0 },
+      { rosBinaryMessages: ["/foo"] }
+    );
+    const getMessagesPromise2 = provider.getMessages(
+      { sec: 100, nsec: 0 },
+      { sec: 102, nsec: 0 },
+      { rosBinaryMessages: ["/foo", "/bar"] }
+    );
 
-    expect(await getMessagesPromise1).toEqual([]);
-    expect(await getMessagesPromise2).toEqual([]);
+    expect(await getMessagesPromise1).toEqual({
+      bobjects: undefined,
+      parsedMessages: undefined,
+      rosBinaryMessages: [],
+    });
+    expect(await getMessagesPromise2).toEqual({
+      bobjects: undefined,
+      parsedMessages: undefined,
+      rosBinaryMessages: [],
+    });
 
     const db = await getIdbCacheDataProviderDatabase("some-id");
     const messages = await db.getRange(MESSAGES_STORE_NAME, TIMESTAMP_INDEX, 0, 6e9);

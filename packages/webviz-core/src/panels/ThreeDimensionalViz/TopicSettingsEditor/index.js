@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2018-present, GM Cruise LLC
+//  Copyright (c) 2018-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -8,8 +8,9 @@
 
 import { upperFirst } from "lodash";
 import React, { useCallback, type ComponentType } from "react";
-import styled from "styled-components";
+import { hot } from "react-hot-loader/root";
 
+import { SLabel, SDescription, SInput } from "./common";
 import LaserScanSettingsEditor from "./LaserScanSettingsEditor";
 import MarkerSettingsEditor from "./MarkerSettingsEditor";
 import PointCloudSettingsEditor from "./PointCloudSettingsEditor";
@@ -20,35 +21,14 @@ import Flex from "webviz-core/src/components/Flex";
 import { Select, Option } from "webviz-core/src/components/Select";
 import { getGlobalHooks } from "webviz-core/src/loadWebviz";
 import type { Topic } from "webviz-core/src/players/types";
-import { POINT_CLOUD_DATATYPE, POSE_STAMPED_DATATYPE, LASER_SCAN_DATATYPE } from "webviz-core/src/util/globalConstants";
+import {
+  POINT_CLOUD_DATATYPE,
+  POSE_STAMPED_DATATYPE,
+  LASER_SCAN_DATATYPE,
+  WEBVIZ_MARKER_DATATYPE,
+} from "webviz-core/src/util/globalConstants";
 
 export const LINED_CONVEX_HULL_RENDERING_SETTING = "LinedConvexHull";
-
-export const SLabel = styled.label`
-  display: block;
-  font-size: 14px;
-  margin: 6px 2px;
-  text-decoration: ${(props) => (props.strikethrough ? "line-through" : null)};
-`;
-export const SDescription = styled.label`
-  display: block;
-  margin: 6px 2px;
-  opacity: 0.8;
-`;
-
-export const SInput = styled.input`
-  flex: 1 1 auto;
-  margin-bottom: 8px;
-`;
-
-// Parse color saved into topic settings into {r, g, b, a} form.
-export function parseColorSetting(rgba: ?string) {
-  const [r = 255, g = 255, b = 255, a = 1] = (rgba || "")
-    .split(",")
-    .map(parseFloat)
-    .map((x) => (isNaN(x) ? undefined : x));
-  return { r: r / 255, g: g / 255, b: b / 255, a };
-}
 
 export function CommonPointSettings({
   defaultPointSize,
@@ -78,6 +58,7 @@ export function CommonPointSettings({
     <Flex col>
       <SLabel>Point size</SLabel>
       <SInput
+        data-test="point-size-input"
         type="number"
         placeholder={defaultPointSize.toString()}
         value={pointSizeVal}
@@ -134,14 +115,15 @@ export type TopicSettingsEditorProps<Msg, Settings: {}> = {|
   message: ?Msg,
   settings: Settings,
   onFieldChange: (name: string, value: any) => void,
-  onSettingsChange: ({}) => void,
+  onSettingsChange: ({} | (({}) => {})) => void,
 |};
 
-function topicSettingsEditorForDatatype(datatype: string): ?ComponentType<TopicSettingsEditorProps<any, any>> {
+export function topicSettingsEditorForDatatype(datatype: string): ?ComponentType<TopicSettingsEditorProps<any, any>> {
   const editors = {
     [POINT_CLOUD_DATATYPE]: PointCloudSettingsEditor,
     [POSE_STAMPED_DATATYPE]: PoseSettingsEditor,
     [LASER_SCAN_DATATYPE]: LaserScanSettingsEditor,
+    [WEBVIZ_MARKER_DATATYPE]: MarkerSettingsEditor,
     "visualization_msgs/Marker": MarkerSettingsEditor,
     "visualization_msgs/MarkerArray": MarkerSettingsEditor,
     ...getGlobalHooks().perPanelHooks().ThreeDimensionalViz.topicSettingsEditors,
@@ -149,15 +131,14 @@ function topicSettingsEditorForDatatype(datatype: string): ?ComponentType<TopicS
   return editors[datatype];
 }
 
-export function canEditDatatype(datatype: string) {
+export function canEditDatatype(datatype: string): boolean {
   return topicSettingsEditorForDatatype(datatype) != null;
 }
 
-// Get topic settings with configurable defaults applied
-export function getTopicSettings(topic: Topic, settings: ?{}) {
-  const { getDefaultTopicSettings } = getGlobalHooks().perPanelHooks().ThreeDimensionalViz;
-  const defaultSettings = getDefaultTopicSettings && getDefaultTopicSettings(topic);
-  return { ...defaultSettings, ...settings };
+export function canEditNamespaceOverrideColorDatatype(datatype: string): boolean {
+  const editor = topicSettingsEditorForDatatype(datatype);
+  // $FlowFixMe added static field `canEditNamespaceOverrideColor` to the React component
+  return !!(editor && editor.canEditNamespaceOverrideColor);
 }
 
 type Props = {|
@@ -167,12 +148,17 @@ type Props = {|
   onSettingsChange: ({}) => void,
 |};
 
-export default React.memo<Props>(function TopicSettingsEditor({ topic, message, settings, onSettingsChange }: Props) {
+const TopicSettingsEditor = React.memo<Props>(function TopicSettingsEditor({
+  topic,
+  message,
+  settings,
+  onSettingsChange,
+}: Props) {
   const onFieldChange = useCallback(
     (fieldName: string, value: any) => {
-      onSettingsChange({ ...settings, [fieldName]: value });
+      onSettingsChange((newSettings) => ({ ...newSettings, [fieldName]: value }));
     },
-    [settings, onSettingsChange]
+    [onSettingsChange]
   );
 
   const Editor = topicSettingsEditorForDatatype(topic.datatype);
@@ -189,7 +175,7 @@ export default React.memo<Props>(function TopicSettingsEditor({ topic, message, 
       <ErrorBoundary>
         <Editor
           message={message}
-          settings={getTopicSettings(topic, settings)}
+          settings={settings || {}}
           onFieldChange={onFieldChange}
           onSettingsChange={onSettingsChange}
         />
@@ -198,3 +184,5 @@ export default React.memo<Props>(function TopicSettingsEditor({ topic, message, 
     </div>
   );
 });
+
+export default hot(TopicSettingsEditor);

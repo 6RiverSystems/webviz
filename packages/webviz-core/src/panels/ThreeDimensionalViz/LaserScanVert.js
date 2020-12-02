@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2018-present, GM Cruise LLC
+//  Copyright (c) 2018-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -18,11 +18,12 @@ export default `
   uniform float range_min;
   uniform float range_max;
   uniform bool isHitmap;
+  uniform vec4 hitmapColor;
+  uniform vec4 color;
 
   attribute float index;
   attribute float range;
   attribute float intensity;
-  attribute vec4 hitmapColor;
 
   varying vec4 vColor;
 
@@ -35,10 +36,7 @@ export default `
 
     if (range < range_min || range > range_max || intensity == 0.0) {
       gl_PointSize = 0.;
-    } else if (isHitmap) {
-      vColor = hitmapColor;
-    } else {
-      vColor = vec4(0.5, 0.5, 1, 1);
     }
+    vColor = isHitmap ? hitmapColor : color;
   }
 `;

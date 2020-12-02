@@ -16,7 +16,7 @@ import type { CameraState } from "../types";
 import Worldview, { type Props } from "../Worldview";
 import { assertionTest, timeout } from "stories/assertionTestUtils";
 
-const defaultCameraState: $Shape<CameraState> = {
+export const defaultCameraState: $Shape<CameraState> = {
   distance: 75,
   perspective: true,
   phi: Math.PI / 2,
@@ -66,7 +66,7 @@ export async function clickAtOrigin() {
  */
 export function generateNonInstancedClickAssertions<Type>(
   commandName: string,
-  CommandInstance: ComponentType<{ children: Array<Type>, ...CommonCommandProps }>,
+  CommandInstance: ComponentType<{ ...CommonCommandProps, children: Array<Type> }>,
   renderedObjects: Array<Type>,
   overrideOptions?: {
     overrideExpectedSingleObjects?: any,
@@ -168,7 +168,7 @@ export function generateNonInstancedClickAssertions<Type>(
  */
 export function generateInstancedClickAssertions<Type>(
   commandName: string,
-  CommandInstance: ComponentType<{ children: Array<Type>, ...CommonCommandProps }>,
+  CommandInstance: ComponentType<{ ...CommonCommandProps, children: Array<Type> }>,
   renderedObject: Type
 ): Array<{ name: string, story: () => React$Element<any> }> {
   return [

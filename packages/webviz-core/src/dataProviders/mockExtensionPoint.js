@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2019-present, GM Cruise LLC
+//  Copyright (c) 2019-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -8,10 +8,14 @@
 import type { ExtensionPoint } from "webviz-core/src/dataProviders/types";
 
 export function mockExtensionPoint() {
+  const metadata = [];
   return {
     extensionPoint: ({
       progressCallback() {},
-      reportMetadataCallback() {},
+      reportMetadataCallback(m) {
+        metadata.push(m);
+      },
     }: ExtensionPoint),
+    metadata,
   };
 }

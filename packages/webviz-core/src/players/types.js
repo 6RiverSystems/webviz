@@ -1,15 +1,26 @@
 // @flow
 //
-//  Copyright (c) 2018-present, GM Cruise LLC
+//  Copyright (c) 2018-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
 //  You may not use this file except in compliance with the License.
 
-import type { Time } from "rosbag";
+import type { Time, RosMsgDefinition } from "rosbag";
 
+import type { BlockCache } from "webviz-core/src/dataProviders/MemoryCacheDataProvider";
+import type {
+  AverageThroughput,
+  DataProviderStall,
+  InitializationPerformanceMetadata,
+} from "webviz-core/src/dataProviders/types";
+import { type GlobalVariables } from "webviz-core/src/hooks/useGlobalVariables";
 import type { RosDatatypes } from "webviz-core/src/types/RosDatatypes";
 import type { Range } from "webviz-core/src/util/ranges";
+import type { TimestampMethod } from "webviz-core/src/util/time";
+
+export type MessageDefinitionsByTopic = { [topic: string]: string };
+export type ParsedMessageDefinitionsByTopic = { [topic: string]: RosMsgDefinition[] };
 
 // A `Player` is a class that manages playback state. It manages subscriptions,
 // current time, which topics and datatypes are available, and so on.
@@ -40,10 +51,24 @@ export interface Player {
   // Basic playback controls.
   startPlayback(): void;
   pausePlayback(): void;
-  seekPlayback(time: Time): void; // Seek to a particular time. Might trigger backfilling.
+  seekPlayback(time: Time, backfillDuration: ?Time): void; // Seek to a particular time. Might trigger backfilling.
+
   // If the Player supports non-real-time speeds (i.e. PlayerState#capabilities contains
   // PlayerCapabilities.setSpeed), set that speed. E.g. 1.0 is real time, 0.2 is 20% of real time.
   setPlaybackSpeed(speedFraction: number): void;
+
+  // Request a backfill for Players that support it. Allowed to be a no-op if the player does not
+  // support backfilling, or if it's already playing (in which case we'd get new messages soon anyway).
+  // This is currently called after subscriptions changed. We do our best in the MessagePipeline to
+  // not call this method too often (e.g. it's debounced).
+  // TODO(JP): We can't call this too often right now, since it clears out all existing data in
+  // panels, so e.g. the Plot panel which might have a lot of data loaded would get cleared to just
+  // a small backfilled amount of data. We should somehow make this more granular.
+  requestBackfill(): void;
+
+  // Set the globalVariables for Players that support it.
+  // This is generally used to pass new globalVariables to the UserNodePlayer
+  setGlobalVariables(globalVariables: GlobalVariables): void;
 }
 
 export type PlayerState = {|
@@ -74,12 +99,18 @@ export type PlayerState = {|
   activeData: ?PlayerStateActiveData,
 |};
 
+export type PlayerWarnings = $ReadOnly<{|
+  topicsWithoutHeaderStamps?: $ReadOnlyArray<string>,
+|}>;
+
 export type PlayerStateActiveData = {|
   // An array of (ROS-like) messages that should be rendered. Should be ordered by `receiveTime`,
   // and should be immediately following the previous array of messages that was emitted as part of
   // this state. If there is a discontinuity in messages, `lastSeekTime` should be different than
-  // the previous state. Panels collect these messages using `<MessageHistory>`.
-  messages: Message[],
+  // the previous state. Panels collect these messages using the `PanelAPI`.
+  messages: $ReadOnlyArray<Message>,
+  bobjects: $ReadOnlyArray<BobjectMessage>,
+  totalBytesReceived: number, // always-increasing
 
   // The current playback position, which will be shown in the playback bar. This time should be
   // equal to or later than the latest `receiveTime` in `messages`. Why not just use
@@ -106,8 +137,11 @@ export type PlayerStateActiveData = {|
   // E.g. 1.0 is real time, 0.2 is 20% of real time.
   speed: number,
 
+  // The order in which messages are published.
+  messageOrder: TimestampMethod,
+
   // The last time a seek / discontinuity in messages happened. This will clear out data within
-  // `<MessageHistory>` so we're not looking at stale data.
+  // `PanelAPI` so we're not looking at stale data.
   // TODO(JP): This currently is a time per `Date.now()`, but we don't need that anywhere, so we
   // should change this to a `resetMessagesId` where you just have to set it to a unique id (better
   // to have an id than a boolean, in case the listener skips parsing a state for some reason).
@@ -124,6 +158,13 @@ export type PlayerStateActiveData = {|
   // topic must refer to a datatype that is present in this list, every datatypes that refers to
   // another datatype must refer to a datatype that is present in this list).
   datatypes: RosDatatypes,
+
+  // Used for late-parsing of binary messages. Required to cover any topic for which binary data is
+  // given to panels. (May be empty for players that only provide messages parsed into objects.)
+  parsedMessageDefinitionsByTopic: ParsedMessageDefinitionsByTopic,
+
+  // Used for communicating potential issues that surface during playback.
+  playerWarnings: PlayerWarnings,
 |};
 
 // Represents a ROS topic, though the actual data does not need to come from a ROS system.
@@ -135,33 +176,45 @@ export type Topic = {|
   // Name of the datatype (see `type PlayerStateActiveData` for details).
   datatype: string,
   // The original topic name, if the topic name was at some point renamed, e.g. in
-  // CombinedDataProvider.
+  // RenameDataProvider.
   originalTopic?: string,
+  // The number of messages present on the topic. Valid only for sources with a fixed number of
+  // messages, such as bags.
+  numMessages?: number,
 |};
 
 // A ROS-like message.
-// TODO(JP): `op` bit is unnecessary, and the `datatype` bit is redundant
-// with the `topics` array in `PlayerStateActiveData`. We should remove both
-// and unify type with `DataProviderMessage`.
-export type TypedMessage<T> = {|
+export type TypedMessage<T> = $ReadOnly<{|
   topic: string,
-  datatype: string,
-  op: "message",
   receiveTime: Time,
 
   // The actual message format. This is currently not very tightly defined, but it's typically
   // JSON-serializable, with the exception of typed arrays
   // (see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Typed_arrays).
-  message: T,
-|};
+  message: $ReadOnly<T>,
+|}>;
 export type Message = TypedMessage<any>;
 
-// Contains different kinds of progress indications, mostly used in the playback bar.
-export type Progress = {
-  // Percentages by topic. Currently only used by the old Airavata code path,
-  // should be considered deprecated.
-  percentageByTopic?: { [string]: ?number },
+type RosSingularField = number | string | boolean | RosObject; // No time -- consider it a message.
+export type RosValue = RosSingularField | $ReadOnlyArray<RosSingularField> | Uint8Array | Int8Array | void | null;
+export type RosObject = $ReadOnly<{ [property: string]: RosValue }>;
 
+// Keeping 'Bobject' opaque here ensures that we're not mixing and matching
+// parsed messages with Bobjects.
+export opaque type Bobject = {};
+
+// Split from `TypedMessage` because $ReadOnly<> disagrees with the opaque Bobject type and mixed.
+export type OpaqueMessage<T> = $ReadOnly<{|
+  topic: string,
+  receiveTime: Time,
+  message: T,
+|}>;
+export type BobjectMessage = OpaqueMessage<Bobject>;
+export type ReflectiveMessage = OpaqueMessage<mixed>;
+export const cast = <T>(message: $ReadOnly<RosObject> | Bobject | mixed): T => ((message: any): T);
+
+// Contains different kinds of progress indications, mostly used in the playback bar.
+export type Progress = $ReadOnly<{|
   // Used to show progress bar. Ranges are fractions, e.g. `{ start: 0, end: 0.5 }`.
   fullyLoadedFractionRanges?: Range[],
 
@@ -169,12 +222,18 @@ export type Progress = {
   // `IdbCacheReaderDataProvider` to determine if a range is already available
   // in IndexedDB. Is not directly shown in the UI.
   nsTimeRangesSinceBagStart?: { [string]: Range[] },
-};
+
+  // A raw view into the cached binary data stored by the MemoryCacheDataProvider. Only present when
+  // using the RandomAccessPlayer.
+  messageCache?: BlockCache,
+|}>;
 
 // TODO(JP): Deprecated; just inline this type wherever needed.
 export type Frame = {
   [topic: string]: Message[],
 };
+
+export type MessageFormat = "parsedMessages" | "bobjects";
 
 // Represents a subscription to a single topic, for use in `setSubscriptions`.
 // TODO(JP): Pull this into two types, one for the Player (which does not care about the
@@ -192,6 +251,14 @@ export type SubscribePayload = {|
 
   // Optionally, where the request came from. Used in the "Internals" panel to improve debugging.
   requester?: {| type: "panel" | "node" | "other", name: string |},
+
+  // If all subscriptions for this topic have this flag set, and the topic is available in
+  // PlayerState#Progress#blocks, the message won't be included in PlayerStateActiveData#messages.
+  // This is used by parsed-message subscribers to avoid parsing the messages at playback time when
+  // possible. Note: If there are other subscriptions without this flag set, the messages may still
+  // be delivered to the fallback subscriber.
+  preloadingFallback?: boolean,
+  format: MessageFormat,
 |};
 
 // Represents a single topic publisher, for use in `setPublishers`.
@@ -225,19 +292,19 @@ export const PlayerCapabilities = {
 // A metrics collector is an interface passed into a `Player`, which will get called when certain
 // events happen, so we can track those events in some metrics system.
 export interface PlayerMetricsCollectorInterface {
+  playerConstructed(): void;
   initialized(): void;
   play(speed: number): void;
   seek(time: Time): void;
   setSpeed(speed: number): void;
   pause(): void;
   close(): void;
+  setSubscriptions(subscriptions: SubscribePayload[]): void;
   recordBytesReceived(bytes: number): void;
-  recordPlaybackTime(time: Time): void;
+  recordPlaybackTime(time: Time, stillLoadingData: boolean): void;
+  recordDataProviderPerformance(metadata: AverageThroughput): void;
+  recordUncachedRangeRequest(): void;
+  recordTimeToFirstMsgs(): void;
+  recordDataProviderInitializePerformance(metadata: InitializationPerformanceMetadata): void;
+  recordDataProviderStall(metadata: DataProviderStall): void;
 }
-
-// Common (but not required) options to initialize a `Player` with.
-export type PlayerOptions = {|
-  autoplay: ?boolean,
-  seekToTime: ?Time,
-  frameSizeMs: ?number,
-|};

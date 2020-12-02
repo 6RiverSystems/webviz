@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2019-present, GM Cruise LLC
+//  Copyright (c) 2019-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -10,8 +10,8 @@ import Tree from "react-json-tree";
 import styled from "styled-components";
 
 import type { UserNodeLog } from "webviz-core/src/players/UserNodePlayer/types";
-import { colors } from "webviz-core/src/util/colors";
 import { jsonTreeTheme } from "webviz-core/src/util/globalConstants";
+import { colors } from "webviz-core/src/util/sharedStyleConstants";
 
 const SListItem = styled.li`
   display: flex;
@@ -65,9 +65,7 @@ const LogsSection = ({ nodeId, logs, clearLogs }: Props) => {
         {logs.map(({ source, value }, idx) => {
           const renderTreeObj = value != null && typeof value === "object";
           return (
-            <SListItem
-              key={`${idx}${source}${JSON.stringify(value)}`}
-              style={{ padding: renderTreeObj ? "0px 3px" : "6px 3px 3px" }}>
+            <SListItem key={`${idx}${source}`} style={{ padding: renderTreeObj ? "0px 3px" : "6px 3px 3px" }}>
               {renderTreeObj ? (
                 <Tree hideRoot data={value} invertTheme={false} theme={jsonTreeTheme} />
               ) : (

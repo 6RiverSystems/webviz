@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2018-present, GM Cruise LLC
+//  Copyright (c) 2018-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -15,7 +15,7 @@ import Dropdown from "webviz-core/src/components/Dropdown";
 import Icon from "webviz-core/src/components/Icon";
 import styles from "webviz-core/src/components/PanelToolbar/index.module.scss";
 import type { Topic } from "webviz-core/src/players/types";
-import { colors } from "webviz-core/src/util/colors";
+import { colors } from "webviz-core/src/util/sharedStyleConstants";
 
 export type TopicGroup = {
   suffix: string,
@@ -113,7 +113,7 @@ export default function TopicToRenderMenu({
           <DatabaseIcon className={styles.icon} />
         </Icon>
       }>
-      {renderTopics.map((topic, idx) => (
+      {renderTopics.map((topic) => (
         <SDiv
           style={topicToRender === topic ? { backgroundColor: "rgba(59, 46, 118, 0.6)" } : {}}
           key={topic}

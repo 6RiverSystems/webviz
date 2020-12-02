@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2018-present, GM Cruise LLC
+//  Copyright (c) 2018-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -8,14 +8,15 @@
 
 import { Time } from "rosbag";
 
-import {
-  type DataProviderDescriptor,
-  type ExtensionPoint,
-  type InitializationResult,
-  type DataProviderMessage,
-  type DataProvider,
+import { setupReceiveReportErrorHandler } from "webviz-core/src//util/RpcUtils";
+import type {
+  DataProviderDescriptor,
+  ExtensionPoint,
+  GetMessagesResult,
+  GetMessagesTopics,
+  InitializationResult,
+  DataProvider,
 } from "webviz-core/src/dataProviders/types";
-import reportError from "webviz-core/src/util/reportError";
 import Rpc from "webviz-core/src/util/Rpc";
 
 // Looks a bit like a regular `DataProvider`, but is not intended to be used directly in a
@@ -29,9 +30,7 @@ export default class RpcDataProvider implements DataProvider {
 
   constructor(rpc: Rpc, children: DataProviderDescriptor[]) {
     this._rpc = rpc;
-    this._rpc.receive("reportError", ({ message, details, type }) => {
-      reportError(message, details, type);
-    });
+    setupReceiveReportErrorHandler(this._rpc);
     if (children.length !== 1) {
       throw new Error(`RpcDataProvider requires exactly 1 child, but received ${children.length}`);
     }
@@ -58,8 +57,16 @@ export default class RpcDataProvider implements DataProvider {
     return this._rpc.send("initialize", { childDescriptor: this._childDescriptor });
   }
 
-  async getMessages(start: Time, end: Time, topics: string[]): Promise<DataProviderMessage[]> {
-    return (await this._rpc.send("getMessages", { start, end, topics })).messages;
+  async getMessages(start: Time, end: Time, topics: GetMessagesTopics): Promise<GetMessagesResult> {
+    if (topics.bobjects || topics.parsedMessages) {
+      throw new Error("RpcDataProvider only supports rosBinaryMessages");
+    }
+    return {
+      rosBinaryMessages: (await this._rpc.send("getMessages", { start, end, topics: topics.rosBinaryMessages }))
+        .messages,
+      bobjects: undefined,
+      parsedMessages: undefined,
+    };
   }
 
   close(): Promise<void> {

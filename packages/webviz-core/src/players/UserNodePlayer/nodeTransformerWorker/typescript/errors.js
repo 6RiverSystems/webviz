@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2019-present, GM Cruise LLC
+//  Copyright (c) 2019-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -28,9 +28,16 @@ export const badTypeReturnError = {
   code: ErrorCodes.DatatypeExtraction.BAD_TYPE_RETURN,
 };
 
+export const limitedUnionsError = {
+  severity: DiagnosticSeverity.Error,
+  message: "The 'default export' function can only return union types of the form: 'YourType | undefined'.",
+  source: Sources.DatatypeExtraction,
+  code: ErrorCodes.DatatypeExtraction.LIMITED_UNIONS,
+};
+
 export const unionsError = {
   severity: DiagnosticSeverity.Error,
-  message: "Unions are not allowed as or in return type.",
+  message: "Unions are not allowed in return type.",
   source: Sources.DatatypeExtraction,
   code: ErrorCodes.DatatypeExtraction.NO_UNIONS,
 };
@@ -77,16 +84,23 @@ export const noTypeOfError = {
   code: ErrorCodes.DatatypeExtraction.NO_TYPEOF,
 };
 
-export const noImportsInReturnType = {
-  severity: DiagnosticSeverity.Error,
-  message: "Node Playground does not currently support imports in the return type.",
-  source: Sources.DatatypeExtraction,
-  code: ErrorCodes.DatatypeExtraction.NO_IMPORTS_IN_RETURN_TYPE,
-};
-
 export const noTuples = {
   severity: DiagnosticSeverity.Error,
   message: "Tuples are not allowed as types.",
   source: Sources.DatatypeExtraction,
   code: ErrorCodes.DatatypeExtraction.NO_TUPLES,
+};
+
+export const noNestedAny = {
+  severity: DiagnosticSeverity.Error,
+  message: "Cannot nest 'any' in the return type.",
+  source: Sources.DatatypeExtraction,
+  code: ErrorCodes.DatatypeExtraction.NO_NESTED_ANY,
+};
+
+export const noMappedTypes = {
+  severity: DiagnosticSeverity.Error,
+  message: "MappedTypes such as Record<Keys,Type> are not supported.",
+  source: Sources.DatatypeExtraction,
+  code: ErrorCodes.DatatypeExtraction.NO_MAPPED_TYPES,
 };

@@ -1,229 +1,229 @@
 // @flow
 //
-//  Copyright (c) 2018-present, GM Cruise LLC
+//  Copyright (c) 2018-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
 //  You may not use this file except in compliance with the License.
 
 import Tooltip from "@cruise-automation/tooltip";
-import CancelIcon from "@mdi/svg/svg/cancel.svg";
 import PauseIcon from "@mdi/svg/svg/pause.svg";
 import PlayIcon from "@mdi/svg/svg/play.svg";
+import SkipNextOutlineIcon from "@mdi/svg/svg/skip-next-outline.svg";
+import SkipPreviousOutlineIcon from "@mdi/svg/svg/skip-previous-outline.svg";
 import classnames from "classnames";
-import React, { useCallback } from "react";
-import KeyListener from "react-key-listener";
-import { useSelector, useDispatch } from "react-redux";
+import React, { memo, useCallback, useMemo, useRef, useState } from "react";
+import { useDispatch } from "react-redux";
 import type { Time } from "rosbag";
 import styled from "styled-components";
+import uuid from "uuid";
 
 import styles from "./index.module.scss";
+import PlaybackBarHoverTicks from "./PlaybackBarHoverTicks";
 import { ProgressPlot } from "./ProgressPlot";
-import { setPlaybackConfig as setPlaybackConfigAction } from "webviz-core/src/actions/panels";
-import Dropdown from "webviz-core/src/components/Dropdown";
-import EmptyState from "webviz-core/src/components/EmptyState";
+import { clearHoverValue, setHoverValue } from "webviz-core/src/actions/hoverValue";
+import Button from "webviz-core/src/components/Button";
 import Flex from "webviz-core/src/components/Flex";
 import Icon from "webviz-core/src/components/Icon";
-import { MessagePipelineConsumer } from "webviz-core/src/components/MessagePipeline";
+import KeyListener from "webviz-core/src/components/KeyListener";
+import MessageOrderControls from "webviz-core/src/components/MessageOrderControls";
+import { useMessagePipeline } from "webviz-core/src/components/MessagePipeline";
+import PlaybackTimeDisplayMethod from "webviz-core/src/components/PlaybackControls/PlaybackTimeDisplayMethod";
+import { togglePlayPause, jumpSeek, DIRECTION } from "webviz-core/src/components/PlaybackControls/sharedHelpers";
+import PlaybackSpeedControls from "webviz-core/src/components/PlaybackSpeedControls";
 import Slider from "webviz-core/src/components/Slider";
 import tooltipStyles from "webviz-core/src/components/Tooltip.module.scss";
-import { type PlayerState, PlayerCapabilities } from "webviz-core/src/players/types";
+import { type PlayerState } from "webviz-core/src/players/types";
 import colors from "webviz-core/src/styles/colors.module.scss";
-import { times } from "webviz-core/src/util/entities";
-import { formatTime, formatTimeRaw, subtractTimes, toSec, fromSec } from "webviz-core/src/util/time";
+import { formatTime } from "webviz-core/src/util/formatTime";
+import { colors as sharedColors } from "webviz-core/src/util/sharedStyleConstants";
+import { subtractTimes, toSec, fromSec, formatTimeRaw } from "webviz-core/src/util/time";
 
-const StyledFullWidthBar = styled.div`
+const cx = classnames.bind(styles);
+
+export const StyledFullWidthBar = styled.div`
   position: absolute;
-  top: 17px;
+  top: 12px;
   left: 0;
   right: 0;
-  background-color: ${colors.textMuted};
-  height: 5px;
+  background-color: ${(props) => (props.activeData ? sharedColors.DARK8 : sharedColors.DARK5)};
+  height: 4px;
 `;
 
-const StyledMarker = styled.div.attrs({
-  style: ({ width = 0 }) => ({ left: `calc(${width * 100}% - 2px)` }),
-})`
+export const StyledMarker = styled.div.attrs(({ width }) => ({
+  style: { left: `calc(${(width || 0) * 100}% - 2px)` },
+}))`
   background-color: white;
   position: absolute;
   height: 36%;
   border: 1px solid ${colors.divider};
-  width: 3px;
+  width: 2px;
   top: 32%;
 `;
 
-type Props = {|
-  playbackSpeed: number,
+export type PlaybackControlProps = {|
   player: PlayerState,
+  auxiliaryData?: any,
   pause: () => void,
   play: () => void,
-  setSpeed: (number) => void,
   seek: (Time) => void,
 |};
 
-const TooltipItem = ({ title, value }) => (
+export const TooltipItem = ({ title, value }: { title: string, value: any }) => (
   <div>
     <span className={styles.tipTitle}>{title}:</span>
     <span className={styles.tipValue}>{value}</span>
   </div>
 );
 
-export class UnconnectedPlaybackControls extends React.PureComponent<Props> {
-  el: ?HTMLDivElement;
-  slider: ?Slider;
+export const UnconnectedPlaybackControls = memo<PlaybackControlProps>((props: PlaybackControlProps) => {
+  const el = useRef<?HTMLDivElement>();
+  const slider = useRef<?Slider>();
+  const { seek, pause, play, player } = props;
 
-  onChange = (value: number) => {
-    const { seek } = this.props;
-    const time = fromSec(value);
-    seek(time);
-  };
+  // playerState is unstable, and will cause callbacks to change identity every frame. They can take
+  // a ref instead.
+  const playerState = useRef(player);
+  playerState.current = player;
 
-  keyDownHandlers = {
-    " ": () => {
-      const { pause, play, player } = this.props;
-
-      if (player.activeData && player.activeData.isPlaying) {
-        pause();
-      } else {
-        play();
-      }
+  const onChange = useCallback(
+    (value: number) => {
+      const time = fromSec(value);
+      seek(time);
     },
-  };
-
-  onMouseMove = (e: SyntheticMouseEvent<HTMLDivElement>) => {
-    const { activeData } = this.props.player;
-    if (!activeData) {
-      return;
-    }
-    const { startTime, endTime } = activeData;
-    const { el, slider } = this;
-    if (!startTime || !endTime || !el || !slider) {
-      return;
-    }
-    const x = e.clientX;
-    // fix the y position of the tooltip to float on top of the
-    // playback bar
-    const y = el.getBoundingClientRect().top;
-
-    const value = slider.getValueAtMouse(e);
-    const stamp = fromSec(value);
-    const timeFromStart = subtractTimes(stamp, startTime);
-
-    const tip = (
-      <div className={classnames(tooltipStyles.tooltip, styles.tip)}>
-        <TooltipItem title="ROS" value={formatTimeRaw(stamp)} />
-        <TooltipItem title="Time" value={formatTime(stamp)} />
-        <TooltipItem title="Elapsed" value={`${toSec(timeFromStart).toFixed(9)} sec`} />
-      </div>
-    );
-    Tooltip.show(x, y, tip, {
-      placement: "top",
-      offset: { x: 0, y: 0 },
-      arrow: <div className={tooltipStyles.arrow} />,
-    });
-  };
-
-  onMouseLeave = (e: SyntheticMouseEvent<HTMLDivElement>) => {
-    Tooltip.hide();
-  };
-
-  render() {
-    const { pause, play, setSpeed, player } = this.props;
-    const { activeData, showInitializing, progress, capabilities } = player;
-
-    if (!activeData) {
-      const message = showInitializing ? (
-        "Player is initializing..."
-      ) : (
-        <span>
-          Drop a <a href="http://wiki.ros.org/ROS/Tutorials/Recording%20and%20playing%20back%20data">ROS bag file</a> to
-          get started. Or check out <a href="/worldview">Worldview</a> and other packages on{" "}
-          <a href="https://github.com/cruise-automation">GitHub</a>!
-        </span>
-      );
-      return (
-        <Flex row className={classnames(styles.container, styles.disconnected)}>
-          <Icon large clickable={false}>
-            <CancelIcon />
-          </Icon>
-          <EmptyState alignLeft>{message}</EmptyState>
-        </Flex>
-      );
-    }
-
-    const { isPlaying, startTime, endTime, currentTime, speed } = activeData;
-
-    const min = toSec(startTime);
-    const max = toSec(endTime);
-    const value = currentTime == null ? null : toSec(currentTime);
-    const step = (max - min) / 500;
-
-    return (
-      <Flex row className={styles.container}>
-        <KeyListener global keyDownHandlers={this.keyDownHandlers} />
-        <div className={styles.playIconWrapper} onClick={isPlaying ? pause : play}>
-          <Icon large>{isPlaying ? <PauseIcon /> : <PlayIcon />}</Icon>
-        </div>
-        <div>
-          {capabilities.includes(PlayerCapabilities.setSpeed) && speed != null && speed !== 0 && (
-            <Dropdown position="above" value={speed} text={`${speed.toFixed(1)}${times}`} onChange={setSpeed}>
-              <span value={0.1}>0.1&times;</span>
-              <span value={0.2}>0.2&times;</span>
-              <span value={0.5}>0.5&times;</span>
-              <span value={1}>1.0&times;</span>
-            </Dropdown>
-          )}
-        </div>
-
-        <div className={styles.bar}>
-          <StyledFullWidthBar />
-          <div className={styles.stateBar}>
-            <ProgressPlot progress={progress} />
-          </div>
-          <div
-            ref={(el) => (this.el = el)}
-            className={styles.sliderContainer}
-            onMouseMove={this.onMouseMove}
-            onMouseLeave={this.onMouseLeave}>
-            <Slider
-              ref={(slider) => (this.slider = slider)}
-              min={min}
-              max={max}
-              step={step}
-              value={value}
-              draggable
-              onChange={this.onChange}
-              renderSlider={(value) => (value == null ? null : <StyledMarker width={value} />)}
-            />
-          </div>
-        </div>
-      </Flex>
-    );
-  }
-}
-
-function PlaybackControls() {
-  const playbackSpeed = useSelector((state) => state.panels.playbackConfig.speed);
-  const dispatch = useDispatch();
-  const setPlaybackConfig = useCallback((config) => dispatch(setPlaybackConfigAction(config)), [dispatch]);
-
-  const renderUnconnectedPlaybackControls = useCallback(
-    (context) => (
-      <UnconnectedPlaybackControls
-        player={context.playerState}
-        play={context.startPlayback}
-        pause={context.pausePlayback}
-        seek={context.seekPlayback}
-        setSpeed={(speed) => {
-          context.setPlaybackSpeed(speed);
-          setPlaybackConfig({ speed });
-        }}
-        playbackSpeed={playbackSpeed}
-      />
-    ),
-    [setPlaybackConfig, playbackSpeed]
+    [seek]
   );
-  return <MessagePipelineConsumer>{renderUnconnectedPlaybackControls}</MessagePipelineConsumer>;
-}
 
-export default PlaybackControls;
+  const keyDownHandlers = useMemo(
+    () => ({
+      " ": () => togglePlayPause({ pause, play, player: playerState.current }),
+      ArrowLeft: (ev: KeyboardEvent) => jumpSeek(DIRECTION.BACKWARD, { seek, player: playerState.current }, ev),
+      ArrowRight: (ev: KeyboardEvent) => jumpSeek(DIRECTION.FORWARD, { seek, player: playerState.current }, ev),
+    }),
+    [pause, play, seek]
+  );
+
+  const [hoverComponentId] = useState<string>(uuid.v4());
+  const dispatch = useDispatch();
+  const onMouseMove = useCallback(
+    (e: SyntheticMouseEvent<HTMLDivElement>) => {
+      const { activeData } = playerState.current;
+      if (!activeData) {
+        return;
+      }
+      const { startTime, endTime } = activeData || {};
+      if (!startTime || !endTime || el.current == null || slider.current == null) {
+        return;
+      }
+      const currentEl = el.current;
+      const currentSlider = slider.current;
+      const x = e.clientX;
+      // fix the y position of the tooltip to float on top of the playback bar
+      const y = currentEl.getBoundingClientRect().top;
+
+      const value = currentSlider.getValueAtMouse(e);
+      const stamp = fromSec(value);
+      const timeFromStart = subtractTimes(stamp, startTime);
+
+      const tip = (
+        <div className={classnames(tooltipStyles.tooltip, styles.tip)}>
+          <TooltipItem title="ROS" value={formatTimeRaw(stamp)} />
+          <TooltipItem title="Time" value={formatTime(stamp)} />
+          <TooltipItem title="Elapsed" value={`${toSec(timeFromStart).toFixed(9)} sec`} />
+        </div>
+      );
+      Tooltip.show(x, y, tip, {
+        placement: "top",
+        offset: { x: 0, y: 0 },
+        arrow: <div className={tooltipStyles.arrow} />,
+      });
+      dispatch(setHoverValue({ componentId: hoverComponentId, type: "PLAYBACK_SECONDS", value: toSec(timeFromStart) }));
+    },
+    [playerState, dispatch, hoverComponentId]
+  );
+
+  const onMouseLeave = useCallback(
+    (_e: SyntheticMouseEvent<HTMLDivElement>) => {
+      Tooltip.hide();
+      dispatch(clearHoverValue({ componentId: hoverComponentId }));
+    },
+    [dispatch, hoverComponentId]
+  );
+
+  const { activeData, progress } = player;
+  const { isPlaying, startTime, endTime, currentTime } = activeData || {};
+
+  const min = startTime && toSec(startTime);
+  const max = endTime && toSec(endTime);
+  const value = currentTime == null ? null : toSec(currentTime);
+  const step = (max - min) / 500;
+
+  const seekControls = useMemo(
+    () => (
+      <>
+        <Button
+          onClick={() => jumpSeek(DIRECTION.BACKWARD, { seek, player: playerState.current })}
+          style={{ borderRadius: "4px 0px 0px 4px", marginLeft: "16px", marginRight: "1px" }}
+          className={cx([styles.seekBtn, { [styles.inactive]: !activeData }])}>
+          <Icon medium tooltip="Seek backward">
+            <SkipPreviousOutlineIcon />
+          </Icon>
+        </Button>
+        <Button
+          onClick={() => jumpSeek(DIRECTION.FORWARD, { seek, player: playerState.current })}
+          style={{ borderRadius: "0px 4px 4px 0px" }}
+          className={cx([styles.seekBtn, { [styles.inactive]: !activeData }])}>
+          <Icon medium tooltip="Seek forward">
+            <SkipNextOutlineIcon />
+          </Icon>
+        </Button>
+      </>
+    ),
+    [activeData, seek]
+  );
+
+  return (
+    <Flex row className={styles.container}>
+      <KeyListener global keyDownHandlers={keyDownHandlers} />
+      <MessageOrderControls />
+      <PlaybackSpeedControls />
+      <div className={styles.playIconWrapper} onClick={isPlaying ? pause : play}>
+        <Icon style={activeData ? {} : { opacity: 0.4 }} xlarge>
+          {isPlaying ? <PauseIcon /> : <PlayIcon />}
+        </Icon>
+      </div>
+      <div className={styles.bar}>
+        <StyledFullWidthBar activeData={activeData} />
+        <div className={styles.stateBar}>
+          <ProgressPlot progress={progress} />
+        </div>
+        <div ref={el} className={styles.sliderContainer} onMouseMove={onMouseMove} onMouseLeave={onMouseLeave}>
+          <Slider
+            ref={slider}
+            min={min}
+            max={max}
+            step={step}
+            value={value}
+            draggable
+            onChange={onChange}
+            renderSlider={(val) => (val == null ? null : <StyledMarker width={val} />)}
+          />
+        </div>
+        <PlaybackBarHoverTicks componentId={hoverComponentId} />
+      </div>
+      <PlaybackTimeDisplayMethod currentTime={currentTime} />
+      {seekControls}
+    </Flex>
+  );
+});
+
+const getProps = ({ pausePlayback, seekPlayback, startPlayback, playerState }) => ({
+  pause: pausePlayback,
+  seek: seekPlayback,
+  play: startPlayback,
+  player: playerState,
+});
+
+export default function PlaybackControls() {
+  return <UnconnectedPlaybackControls {...useMessagePipeline(getProps)} />;
+}

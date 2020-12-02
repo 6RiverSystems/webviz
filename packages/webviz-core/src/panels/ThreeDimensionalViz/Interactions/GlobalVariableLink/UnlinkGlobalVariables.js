@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2018-present, GM Cruise LLC
+//  Copyright (c) 2018-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -15,10 +15,10 @@ import useLinkedGlobalVariables, { type LinkedGlobalVariable } from "../useLinke
 import { SGlobalVariableLink, SPath, GlobalVariableName } from "./index";
 import UnlinkWrapper from "./UnlinkWrapper";
 import Button from "webviz-core/src/components/Button";
-import colors from "webviz-core/src/styles/colors.module.scss";
+import { colors } from "webviz-core/src/util/sharedStyleConstants";
 
 const SForm = styled.form`
-  background-color: ${colors.toolbar};
+  background-color: ${colors.DARK3};
   margin-left: 8px;
   width: 320px;
   box-shadow: 0 6px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(0, 0, 0, 0.25);
@@ -71,7 +71,7 @@ export default function UnlinkGlobalVariables({ name, showList }: Props) {
   // the list UI is shared between 3D panel and Global Variables panel
   const listHtml = (
     <SList style={listStyle}>
-      {links.map(({ topic, markerKeyPath, name }, idx) => {
+      {links.map(({ topic, markerKeyPath, name: linkedGlobalVariableName }, idx) => {
         return (
           <SListItem key={idx} style={listStyle}>
             <Button
@@ -84,7 +84,7 @@ export default function UnlinkGlobalVariables({ name, showList }: Props) {
                     !(
                       linkedGlobalVariable.topic === topic &&
                       isEqual(linkedGlobalVariable.markerKeyPath, markerKeyPath) &&
-                      linkedGlobalVariable.name === name
+                      linkedGlobalVariable.name === linkedGlobalVariableName
                     )
                 );
                 setLinkedGlobalVariables(newLinkedGlobalVariables);

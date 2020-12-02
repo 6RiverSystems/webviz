@@ -73,12 +73,26 @@ export default (regl: any) => {
         view(context, props) {
           return this.getView();
         },
+
+        // inverse of the view rotation, used for making objects always face the camera
+        billboardRotation(context, props) {
+          return selectors.billboardRotation(this.cameraState);
+        },
+
+        isPerspective(context, props) {
+          return this.cameraState.perspective;
+        },
+
+        fovy(context, props) {
+          return this.cameraState.fovy;
+        },
       },
 
       // adds view and projection as uniforms to every command
       // and makes them available in the shaders
       uniforms: {
         view: regl.context("view"),
+        billboardRotation: regl.context("billboardRotation"),
         projection: regl.context("projection"),
       },
     });

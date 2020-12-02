@@ -1,93 +1,52 @@
 // @flow
 //
-//  Copyright (c) 2018-present, GM Cruise LLC
+//  Copyright (c) 2018-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
 //  You may not use this file except in compliance with the License.
 
-import PlusBoxIcon from "@mdi/svg/svg/plus-box.svg";
-import { isEmpty } from "lodash";
-import React, { Component } from "react";
-import { connect } from "react-redux";
+import PlusCircleOutlineIcon from "@mdi/svg/svg/plus-circle-outline.svg";
+import React, { useState, useCallback } from "react";
+import { useDispatch, useSelector } from "react-redux";
 
-import { changePanelLayout, savePanelConfig } from "webviz-core/src/actions/panels";
+import { addPanel, type AddPanelPayload } from "webviz-core/src/actions/panels";
 import ChildToggle from "webviz-core/src/components/ChildToggle";
-import Icon from "webviz-core/src/components/Icon";
+import { WrappedIcon } from "webviz-core/src/components/Icon";
 import Menu from "webviz-core/src/components/Menu";
-import PanelList from "webviz-core/src/panels/PanelList";
+import { getGlobalHooks } from "webviz-core/src/loadWebviz";
+import PanelList, { type PanelSelection } from "webviz-core/src/panels/PanelList";
 import type { State as ReduxState } from "webviz-core/src/reducers";
-import type { PanelsState } from "webviz-core/src/reducers/panels";
-import type { PanelConfig, SaveConfigPayload } from "webviz-core/src/types/panels";
-import { getPanelIdForType } from "webviz-core/src/util";
 
-type OwnProps = {|
+type Props = {|
   defaultIsOpen?: boolean, // just for testing
 |};
 
-type Props = {|
-  ...OwnProps,
-  panels: PanelsState,
-  changePanelLayout: (panelLayout: any) => void,
-  savePanelConfig: (SaveConfigPayload) => void,
-|};
+function AppMenu(props: Props) {
+  const [isOpen, setIsOpen] = useState<boolean>(props.defaultIsOpen || false);
+  const onToggle = useCallback(() => setIsOpen((open) => !open), []);
+  const dispatch = useDispatch();
 
-type State = {| isOpen: boolean |};
+  const layout = useSelector((state: ReduxState) => state.persistedState.panels.layout);
+  const onPanelSelect = useCallback(
+    ({ type, config, relatedConfigs }: PanelSelection) => {
+      dispatch(addPanel(({ type, layout, config, relatedConfigs, tabId: null }: AddPanelPayload)));
+      const { logger, eventNames, eventTags } = getGlobalHooks().getEventLogger();
+      logger({ name: eventNames.PANEL_ADD, tags: { [eventTags.PANEL_TYPE]: type } });
+    },
+    [dispatch, layout]
+  );
 
-class UnconnectedAppMenu extends Component<Props, State> {
-  constructor(props: Props) {
-    super(props);
-    this.state = { isOpen: props.defaultIsOpen || false };
-  }
-
-  shouldComponentUpdate(nextProps: Props, nextState: State) {
-    return nextState.isOpen !== this.state.isOpen;
-  }
-
-  _onToggle = () => {
-    const { isOpen } = this.state;
-    this.setState({ isOpen: !isOpen });
-  };
-
-  _onPanelSelect = (panelType: string, panelConfig?: PanelConfig) => {
-    const { panels, changePanelLayout, savePanelConfig } = this.props;
-    const id = getPanelIdForType(panelType);
-    let newPanels = {
-      direction: "row",
-      first: id,
-      second: panels.layout,
-    };
-    if (isEmpty(panels.layout)) {
-      newPanels = id;
-    }
-    if (panelConfig) {
-      savePanelConfig({ id, config: panelConfig, defaultConfig: {} });
-    }
-    changePanelLayout(newPanels);
-    window.ga("send", "event", "Panel", "Select", panelType);
-  };
-
-  render() {
-    const { isOpen } = this.state;
-    return (
-      <ChildToggle position="below" onToggle={this._onToggle} isOpen={isOpen}>
-        <div style={{ display: "flex", alignItems: "center" }}>
-          <Icon small fade active={isOpen} tooltip="Add Panel">
-            <PlusBoxIcon />
-          </Icon>
-        </div>
-        <Menu>
-          {/* $FlowFixMe - not sure why it thinks onPanelSelect is a Redux action */}
-          <PanelList onPanelSelect={this._onPanelSelect} />
-        </Menu>
-      </ChildToggle>
-    );
-  }
+  return (
+    <ChildToggle position="below" onToggle={onToggle} isOpen={isOpen}>
+      <WrappedIcon medium fade active={isOpen} tooltip="Add Panel">
+        <PlusCircleOutlineIcon />
+      </WrappedIcon>
+      <Menu style={{ overflowY: "hidden", height: "100%" }}>
+        <PanelList onPanelSelect={onPanelSelect} />
+      </Menu>
+    </ChildToggle>
+  );
 }
 
-export default connect<Props, OwnProps, _, _, _, _>(
-  (state: ReduxState) => ({
-    panels: state.panels,
-  }),
-  { changePanelLayout, savePanelConfig }
-)(UnconnectedAppMenu);
+export default AppMenu;

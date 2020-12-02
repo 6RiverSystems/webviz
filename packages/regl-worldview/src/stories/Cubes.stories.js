@@ -2,11 +2,10 @@
 
 import { storiesOf } from "@storybook/react";
 import React from "react";
-import { withScreenshot } from "storybook-chrome-screenshot";
 
 import type { MouseHandler } from "../types";
 import Container from "./Container";
-import { cube, p, UNIT_QUATERNION, buildMatrix, rng } from "./util";
+import { cube, p, UNIT_QUATERNION, buildMatrix, rng, withCustomRenderStates } from "./util";
 import withRange from "./withRange";
 
 import { Cubes, DEFAULT_CAMERA_STATE } from "..";
@@ -83,7 +82,6 @@ class DynamicCubes extends React.Component<any, any> {
 }
 
 storiesOf("Worldview/Cubes", module)
-  .addDecorator(withScreenshot())
   .add(
     "<Cubes> - single",
     withRange((range) => {
@@ -142,4 +140,12 @@ storiesOf("Worldview/Cubes", module)
         </Container>
       );
     })
-  );
+  )
+  .add("<Cubes> - with custom depth and blend values", () => {
+    const cubes = withCustomRenderStates([cube(0)], [cube(1)]);
+    return (
+      <Container cameraState={{ perspective: true }}>
+        <Wrapper cubes={cubes} />
+      </Container>
+    );
+  });

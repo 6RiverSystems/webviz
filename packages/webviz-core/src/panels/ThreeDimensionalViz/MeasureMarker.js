@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2018-present, GM Cruise LLC
+//  Copyright (c) 2018-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -57,8 +57,8 @@ export default function MeasureMarker({ measurePoints: { start, end } }: Props) 
 
   return (
     <>
-      {lines.length && <Lines>{lines}</Lines>}
-      {spheres.length && <Spheres>{spheres}</Spheres>}
+      {lines.length > 0 && <Lines>{lines}</Lines>}
+      {spheres.length > 0 && <Spheres>{spheres}</Spheres>}
     </>
   );
 }

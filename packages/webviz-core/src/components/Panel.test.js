@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2018-present, GM Cruise LLC
+//  Copyright (c) 2018-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -10,20 +10,16 @@ import { mount } from "enzyme";
 import { createMemoryHistory } from "history";
 import * as React from "react";
 
-import { savePanelConfig } from "webviz-core/src/actions/panels";
-import { MockMessagePipelineProvider } from "webviz-core/src/components/MessagePipeline";
+import { savePanelConfigs } from "webviz-core/src/actions/panels";
 import Panel from "webviz-core/src/components/Panel";
 import createRootReducer from "webviz-core/src/reducers";
 import configureStore from "webviz-core/src/store/configureStore.testing";
+import PanelSetup from "webviz-core/src/stories/PanelSetup";
+
+type DummyConfig = { someString: string };
+type DummyProps = { config: DummyConfig, saveConfig: ($Shape<DummyConfig>) => void };
 
 function getDummyPanel(renderFn) {
-  type DummyConfig = {
-    someString: string,
-  };
-  type DummyProps = {
-    config: DummyConfig,
-    saveConfig: ($Shape<DummyConfig>) => void,
-  };
   class DummyComponent extends React.Component<DummyProps> {
     static panelType = "Dummy";
     static defaultConfig = { someString: "hello world" };
@@ -33,8 +29,7 @@ function getDummyPanel(renderFn) {
       return null;
     }
   }
-
-  return Panel(DummyComponent);
+  return Panel<DummyConfig>(DummyComponent);
 }
 
 function getStore() {
@@ -42,13 +37,17 @@ function getStore() {
 }
 
 function Context(props: { children: React.Node, store?: any }) {
+  const extraProps = props.store == null ? undefined : { store: props.store };
   return (
-    <MockMessagePipelineProvider
-      topics={[{ name: "/some/topic", datatype: "some_datatype" }]}
-      datatypes={{ some_datatype: [] }}
-      store={props.store}>
+    <PanelSetup
+      fixture={{
+        topics: [{ name: "/some/topic", datatype: "some_datatype" }],
+        datatypes: { some_datatype: { fields: [] } },
+        frame: {},
+      }}
+      {...extraProps}>
       {props.children}
-    </MockMessagePipelineProvider>
+    </PanelSetup>
   );
 }
 
@@ -68,11 +67,11 @@ describe("Panel", () => {
       {
         capabilities: [],
         config: { someString: "hello world" },
-        datatypes: { some_datatype: [] },
+        datatypes: { some_datatype: { fields: [] } },
         openSiblingPanel: expect.any(Function),
         saveConfig: expect.any(Function),
-        updatePanelConfig: expect.any(Function),
         topics: [{ datatype: "some_datatype", name: "/some/topic" }],
+        isHovered: false,
       },
     ]);
   });
@@ -81,11 +80,11 @@ describe("Panel", () => {
     const renderFn = jest.fn();
     const DummyPanel = getDummyPanel(renderFn);
 
-    const childId = "someChildId";
+    const childId = "Dummy!1my2ydk";
     const someString = "someNewString";
 
     const store = getStore();
-    store.dispatch(savePanelConfig({ id: childId, config: { someString }, defaultConfig: {} }));
+    store.dispatch(savePanelConfigs({ configs: [{ id: childId, config: { someString } }] }));
     mount(
       <Context store={store}>
         <DummyPanel childId={childId} />
@@ -97,11 +96,11 @@ describe("Panel", () => {
       {
         capabilities: [],
         config: { someString },
-        datatypes: { some_datatype: [] },
+        datatypes: { some_datatype: { fields: [] } },
         openSiblingPanel: expect.any(Function),
         saveConfig: expect.any(Function),
-        updatePanelConfig: expect.any(Function),
         topics: [{ datatype: "some_datatype", name: "/some/topic" }],
+        isHovered: false,
       },
     ]);
   });
@@ -118,7 +117,7 @@ describe("Panel", () => {
     );
 
     expect(renderFn.mock.calls.length).toEqual(1);
-    store.dispatch(savePanelConfig({ id: "someOtherId", config: {}, defaultConfig: {} }));
+    store.dispatch(savePanelConfigs({ configs: [{ id: "someOtherId", config: {} }] }));
     expect(renderFn.mock.calls.length).toEqual(1);
   });
 });

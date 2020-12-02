@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2018-present, GM Cruise LLC
+//  Copyright (c) 2018-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -8,19 +8,13 @@
 
 import LinkVariantOffIcon from "@mdi/svg/svg/link-variant-off.svg";
 import LinkVariantIcon from "@mdi/svg/svg/link-variant.svg";
-import * as React from "react";
+import React, { useState, useCallback, type Node } from "react";
 import styled from "styled-components";
 
 import { type LinkedGlobalVariable } from "../useLinkedGlobalVariables";
 import { GlobalVariableName } from "./index";
 import ChildToggle from "webviz-core/src/components/ChildToggle";
 import Icon from "webviz-core/src/components/Icon";
-
-const SUnlinkWrapper = styled.span`
-  flex-direction: row;
-  display: inline-flex;
-  align-items: center;
-`;
 
 const SIconWrapper = styled.span`
   .icon {
@@ -55,37 +49,36 @@ type Props = {
   children: ({
     setIsOpen: (boolean) => void,
     linkedGlobalVariable: LinkedGlobalVariable,
-  }) => React.Node,
-  tooltip?: React.Node,
+  }) => Node,
+  tooltip?: Node,
 };
 
-export default function UnlinkWrapper({ style, children, linkedGlobalVariable, tooltip }: Props) {
-  const [isOpen, setIsOpen] = React.useState<boolean>(false);
+export default function UnlinkWrapper({ children, linkedGlobalVariable, tooltip }: Props) {
+  const [isOpen, setIsOpen] = useState<boolean>(false);
+  const onToggle = useCallback(() => setIsOpen((open) => !open), []);
   return (
     <>
-      <SUnlinkWrapper>
-        <ChildToggle
-          dataTest={`unlink-${linkedGlobalVariable.name}`}
-          position="above"
-          onToggle={() => setIsOpen(!isOpen)}
-          isOpen={isOpen}>
-          <SIconWrapper>
-            <Icon
-              fade
-              tooltipProps={{
-                contents: tooltip || (
-                  <span>
-                    Unlink this field from <GlobalVariableName name={linkedGlobalVariable.name} />
-                  </span>
-                ),
-              }}>
-              <LinkVariantOffIcon className="link-off-icon" />
-              <LinkVariantIcon className="linked-icon" />
-            </Icon>
-          </SIconWrapper>
-          <span>{children({ setIsOpen, linkedGlobalVariable })}</span>
-        </ChildToggle>
-      </SUnlinkWrapper>
+      <ChildToggle
+        dataTest={`unlink-${linkedGlobalVariable.name}`}
+        position="above"
+        onToggle={onToggle}
+        isOpen={isOpen}>
+        <SIconWrapper>
+          <Icon
+            fade
+            tooltipProps={{
+              contents: tooltip || (
+                <span>
+                  Unlink this field from <GlobalVariableName name={linkedGlobalVariable.name} />
+                </span>
+              ),
+            }}>
+            <LinkVariantOffIcon className="link-off-icon" />
+            <LinkVariantIcon className="linked-icon" />
+          </Icon>
+        </SIconWrapper>
+        <span>{children({ setIsOpen, linkedGlobalVariable })}</span>
+      </ChildToggle>
       <GlobalVariableName name={linkedGlobalVariable.name} leftPadding />
     </>
   );

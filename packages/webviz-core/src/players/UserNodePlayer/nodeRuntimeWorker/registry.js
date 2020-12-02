@@ -1,14 +1,19 @@
 // @flow
 //
-//  Copyright (c) 2019-present, GM Cruise LLC
+//  Copyright (c) 2019-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
 //  You may not use this file except in compliance with the License.
+import path from "path";
+
+import { type GlobalVariables } from "webviz-core/src/hooks/useGlobalVariables";
 import type { ProcessMessageOutput, RegistrationOutput } from "webviz-core/src/players/UserNodePlayer/types";
+import { DEFAULT_WEBVIZ_NODE_PREFIX } from "webviz-core/src/util/globalConstants";
+
 // Each node runtime worker runs one node at a time, hence why we have one
 // global declaration of 'nodeCallback'.
-let nodeCallback: (message: {}) => void | {} = () => {};
+let nodeCallback: (message: {}, globalVariables: GlobalVariables) => void | {} = () => {};
 
 if (process.env.NODE_ENV === "test") {
   // When in tests, clear out the callback between tests.
@@ -49,7 +54,28 @@ const getArgsToPrint = (args: any[]) => {
   return args.map(stringifyFuncsInObject).map((arg) => (typeof arg === "object" ? JSON.stringify(arg) : arg));
 };
 
-export const registerNode = ({ nodeCode }: { nodeCode: string }): RegistrationOutput => {
+// Exported for tests.
+export const requireImplementation = (id: string, projectCode: Map<string, string>) => {
+  const requestedFile = `${path.join(DEFAULT_WEBVIZ_NODE_PREFIX, id)}.js`;
+  for (const [file, source] of projectCode.entries()) {
+    if (requestedFile.endsWith(file)) {
+      const sourceExports = {};
+      const require = (reqId: string) => requireImplementation(reqId, projectCode);
+      // $FlowFixMe
+      new Function("exports", "require", source)(sourceExports, require); /* eslint-disable-line no-new-func */
+      return sourceExports;
+    }
+  }
+  throw new Error(`User node required unknown module: '${id}'`);
+};
+
+export const registerNode = ({
+  nodeCode,
+  projectCode,
+}: {
+  nodeCode: string,
+  projectCode: Map<string, string>,
+}): RegistrationOutput => {
   const userNodeLogs = [];
   const userNodeDiagnostics = [];
   self.log = function(...args) {
@@ -60,14 +86,15 @@ export const registerNode = ({ nodeCode }: { nodeCode: string }): RegistrationOu
     }
     userNodeLogs.push(...args.map((value) => ({ source: "registerNode", value })));
   };
-  // TODO: TYPESCRIPT - allow for importing helper functions
   // TODO: Blacklist global methods.
   try {
     const nodeExports = {};
 
+    const require = (id: string) => requireImplementation(id, projectCode);
+
     // Using new Function in order to execute user-input text in Node Playground as code
     // $FlowFixMe
-    new Function("exports", nodeCode)(nodeExports); /* eslint-disable-line no-new-func */
+    new Function("exports", "require", nodeCode)(nodeExports, require); /* eslint-disable-line no-new-func */
     nodeCallback = nodeExports.default;
     return {
       error: null,
@@ -84,7 +111,13 @@ export const registerNode = ({ nodeCode }: { nodeCode: string }): RegistrationOu
   }
 };
 
-export const processMessage = ({ message }: { message: {} }): ProcessMessageOutput => {
+export const processMessage = ({
+  message,
+  globalVariables,
+}: {
+  message: {},
+  globalVariables: GlobalVariables,
+}): ProcessMessageOutput => {
   const userNodeLogs = [];
   const userNodeDiagnostics = [];
   self.log = function(...args) {
@@ -96,7 +129,7 @@ export const processMessage = ({ message }: { message: {} }): ProcessMessageOutp
     userNodeLogs.push(...args.map((value) => ({ source: "processMessage", value })));
   };
   try {
-    const newMessage = nodeCallback(message);
+    const newMessage = nodeCallback(message, globalVariables);
     return { message: newMessage, error: null, userNodeLogs, userNodeDiagnostics };
   } catch (e) {
     // TODO: Be able to map line numbers from errors.

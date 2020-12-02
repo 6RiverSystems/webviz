@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2019-present, GM Cruise LLC
+//  Copyright (c) 2019-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -14,12 +14,12 @@ describe("filterMap", () => {
     expect(filterMap([1, 2, 3], (x, i) => x === i + 1)).toEqual([true, true, true]);
     expect(filterMap([0, 1, 2], (x) => x)).toEqual([1, 2]);
     expect(filterMap([0, 1, 2], (x) => x - 1)).toEqual([-1, 1]);
-    expect(filterMap([0, 1, 2], (x) => true)).toEqual([true, true, true]);
-    expect(filterMap([0, 1, 2], (x) => 0)).toEqual([]);
-    expect(filterMap([0, 1, 2], (x) => undefined)).toEqual([]);
-    expect(filterMap([0, 1, 2], (x) => NaN)).toEqual([]);
-    expect(filterMap([0, 1, 2], (x) => null)).toEqual([]);
-    expect(filterMap([0, 1, 2], (x) => "")).toEqual([]);
-    expect(filterMap([0, 1, 2], (x) => false)).toEqual([]);
+    expect(filterMap([0, 1, 2], () => true)).toEqual([true, true, true]);
+    expect(filterMap([0, 1, 2], () => 0)).toEqual([]);
+    expect(filterMap([0, 1, 2], () => undefined)).toEqual([]);
+    expect(filterMap([0, 1, 2], () => NaN)).toEqual([]);
+    expect(filterMap([0, 1, 2], () => null)).toEqual([]);
+    expect(filterMap([0, 1, 2], () => "")).toEqual([]);
+    expect(filterMap([0, 1, 2], () => false)).toEqual([]);
   });
 });

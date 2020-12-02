@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2018-present, GM Cruise LLC
+//  Copyright (c) 2018-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -10,7 +10,7 @@ import React, { type Node } from "react";
 
 import Button from "webviz-core/src/components/Button";
 import Icon from "webviz-core/src/components/Icon";
-import colors from "webviz-core/src/styles/colors.module.scss";
+import { colors } from "webviz-core/src/util/sharedStyleConstants";
 
 type Props = {
   tooltip: string,
@@ -18,17 +18,18 @@ type Props = {
   icon: Node,
   id?: string,
   style?: StyleObj,
+  disabled?: boolean,
 };
 
-// $FlowFixMe - flow doesn't have a definition for React.memo
-export default React.memo(function IconButton(props: Props) {
-  const { tooltip, onClick, id, icon, style } = props;
+export default React.memo<Props>(function IconButton(props: Props) {
+  const { tooltip, onClick, id, icon, style, disabled } = props;
   return (
     <Button
       id={id}
       tooltip={tooltip}
-      style={{ width: 32, height: 32, padding: 0, backgroundColor: colors.toolbar, ...style }}
-      onClick={onClick}>
+      style={{ width: 32, height: 32, padding: 0, backgroundColor: colors.DARK3, ...style }}
+      onClick={onClick}
+      disabled={disabled}>
       <Icon small>{icon}</Icon>
     </Button>
   );

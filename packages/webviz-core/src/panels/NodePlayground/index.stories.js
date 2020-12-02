@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2019-present, GM Cruise LLC
+//  Copyright (c) 2019-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -8,37 +8,66 @@
 
 import { storiesOf } from "@storybook/react";
 import React from "react";
-import { withScreenshot } from "storybook-chrome-screenshot";
 
-import NodePlayground, { NodePlaygroundSettings } from "webviz-core/src/panels/NodePlayground";
-import type { Explorer } from "webviz-core/src/panels/NodePlayground";
+import { setUserNodes } from "webviz-core/src/actions/panels";
+import NodePlayground, { type Explorer, NodePlaygroundSettings } from "webviz-core/src/panels/NodePlayground";
 import testDocs from "webviz-core/src/panels/NodePlayground/index.test.md";
 import Sidebar from "webviz-core/src/panels/NodePlayground/Sidebar";
 import PanelSetup from "webviz-core/src/stories/PanelSetup";
+import { SExpectedResult } from "webviz-core/src/stories/storyHelpers";
 import { DEFAULT_WEBVIZ_NODE_PREFIX } from "webviz-core/src/util/globalConstants";
 
 const userNodes = {
-  nodeId1: { name: "/some/custom/node", sourceCode: "const someVariableName = 1;" },
-  nodeId2: { name: "/another/custom/node", sourceCode: "const anotherVariableName = 2;" },
+  nodeId1: { name: "/webviz_node/node", sourceCode: "const someVariableName = 1;" },
+  nodeId2: { name: "/webviz_node/node2", sourceCode: "const anotherVariableName = 2;" },
 };
+
+const userNodeRosLib = `
+  export declare interface TopicsToMessageDefinition {
+    "/my_topic": Messages.std_msgs__ColorRGBA;
+  }
+
+  export declare interface Duration {
+    sec: number;
+    nsec: number;
+  }
+
+  export declare interface Time {
+    sec: number;
+    nsec: number;
+  }
+
+  export declare namespace Messages {
+    export interface std_msgs__ColorRGBA {
+      r: number;
+      g: number;
+      b: number;
+      a: number;
+    }
+  }
+
+  export declare interface Input<T extends keyof TopicsToMessageDefinition> {
+    topic: T;
+    receiveTime: Time;
+    message: TopicsToMessageDefinition[T];
+  }
+`;
 
 const fixture = {
   topics: [],
   frame: {},
+  userNodeRosLib,
 };
 
 const sourceCodeWithLogs = `
-  import { Time, Message } from "ros";
-  type InputTopicMsg = {header: {stamp: Time}};
-  type Marker = {};
-  type MarkerArray = { markers: Marker[] }
+  import { Messages } from "ros";
 
-  export const inputs = ["/able_to_engage"];
+  export const inputs = ["/my_topic"];
   export const output = "${DEFAULT_WEBVIZ_NODE_PREFIX}";
 
-  const publisher = (message: Message<InputTopicMsg>): MarkerArray => {
+  const publisher = (): Messages.std_msgs__ColorRGBA => {
     log({ "someKey": { "nestedKey": "nestedValue" } });
-    return { markers: [] };
+    return { r: 1, b: 1, g: 1, a: 1 };
   };
 
   log(100, false, "abc", null, undefined);
@@ -53,8 +82,37 @@ const logs = [
   { source: "processMessage", value: { someKey: { nestedKey: "nestedValue" } }, lineNum: 6, colNum: 0 },
 ];
 
+const sourceCodeWithUtils = `
+  import { Input } from "ros";
+  import { norm } from "./pointClouds";
+
+  export const inputs = ["/my_topic"];
+  export const output = "${DEFAULT_WEBVIZ_NODE_PREFIX}/1";
+
+  const publisher = (message: Input<"/my_topic">): { val: number } => {
+    const val = norm({x:1, y:2, z:3});
+    return { val };
+  };
+
+  export default publisher;
+`;
+
+const utilsSourceCode = `
+  import { type RGBA } from "ros";
+
+  export function norm() {
+    return 0;
+  }
+`;
+
+const SIDEBAR_OPEN_CLICK_TIMEOUT = 500;
+
 storiesOf("<NodePlayground>", module)
-  .addDecorator(withScreenshot({ delay: 1000 }))
+  .addParameters({
+    screenshot: {
+      delay: 2500,
+    },
+  })
   .add("welcome screen", () => {
     return (
       <PanelSetup fixture={fixture}>
@@ -62,14 +120,122 @@ storiesOf("<NodePlayground>", module)
       </PanelSetup>
     );
   })
+  .add("utils usage in node", () => (
+    <PanelSetup
+      fixture={{
+        ...fixture,
+        userNodes: {
+          nodeId1: {
+            name: "/webviz_node/node",
+            sourceCode: sourceCodeWithUtils,
+          },
+        },
+        userNodeDiagnostics: { nodeId1: { diagnostics: [] } },
+        userNodeLogs: { nodeId1: { logs: [] } },
+      }}>
+      <NodePlayground config={{ selectedNodeId: "nodeId1", vimMode: false }} />
+    </PanelSetup>
+  ))
+  .add("Editor shows new code when userNodes change", () => (
+    <PanelSetup
+      fixture={{
+        ...fixture,
+        userNodes: {
+          nodeId1: {
+            name: "/webviz_node/node",
+            sourceCode: sourceCodeWithUtils,
+          },
+        },
+        userNodeDiagnostics: { nodeId1: { diagnostics: [] } },
+        userNodeLogs: { nodeId1: { logs: [] } },
+      }}
+      onMount={(el, store) => {
+        setTimeout(() => {
+          // Change the userNodes to confirm the code in the Editor updates
+          store.dispatch(
+            setUserNodes({
+              nodeId1: {
+                name: "/webviz_node/node",
+                sourceCode: utilsSourceCode,
+              },
+            })
+          );
+          el.querySelectorAll("[data-test=node-explorer]")[0].click();
+        }, 500);
+      }}>
+      <NodePlayground config={{ selectedNodeId: "nodeId1", vimMode: false }} />
+      <SExpectedResult style={{ left: "375px", top: "150px" }}>Should show function norm() code</SExpectedResult>
+    </PanelSetup>
+  ))
+  .add("editor goto definition", () => (
+    <PanelSetup
+      fixture={{
+        ...fixture,
+        userNodes: {
+          nodeId1: {
+            name: "/webviz_node/node",
+            sourceCode: sourceCodeWithUtils,
+          },
+        },
+        userNodeDiagnostics: { nodeId1: { diagnostics: [] } },
+        userNodeLogs: { nodeId1: { logs: [] } },
+      }}>
+      <NodePlayground
+        config={{
+          selectedNodeId: "nodeId1",
+          vimMode: false,
+          additionalBackStackItems: [
+            {
+              filePath: "/webviz_node/pointClouds",
+              code: utilsSourceCode,
+              readOnly: true,
+            },
+          ],
+        }}
+      />
+    </PanelSetup>
+  ))
+  .add("go back from goto definition", () => (
+    <PanelSetup
+      fixture={{
+        ...fixture,
+        userNodes: {
+          nodeId1: {
+            name: "/webviz_node/node",
+            sourceCode: sourceCodeWithUtils,
+          },
+        },
+        userNodeDiagnostics: { nodeId1: { diagnostics: [] } },
+        userNodeLogs: { nodeId1: { logs: [] } },
+      }}
+      onMount={(el) => {
+        setTimeout(() => {
+          el.querySelectorAll("[data-test=go-back]")[0].click();
+        }, 500);
+      }}>
+      <NodePlayground
+        config={{
+          selectedNodeId: "nodeId1",
+          vimMode: false,
+          additionalBackStackItems: [
+            {
+              filePath: "/webviz_node/pointClouds",
+              code: utilsSourceCode,
+              readOnly: true,
+            },
+          ],
+        }}
+      />
+    </PanelSetup>
+  ))
   .add("sidebar open - node explorer", () => {
     return (
       <PanelSetup
         fixture={{ ...fixture, userNodes }}
         onMount={(el) => {
-          setImmediate(() => {
+          setTimeout(() => {
             el.querySelectorAll("[data-test=node-explorer]")[0].click();
-          });
+          }, SIDEBAR_OPEN_CLICK_TIMEOUT);
         }}>
         <NodePlayground />
       </PanelSetup>
@@ -80,35 +246,62 @@ storiesOf("<NodePlayground>", module)
       <PanelSetup
         fixture={{ ...fixture, userNodes }}
         onMount={(el) => {
-          setImmediate(() => {
+          setTimeout(() => {
             el.querySelectorAll("[data-test=node-explorer]")[0].click();
-          });
+          }, SIDEBAR_OPEN_CLICK_TIMEOUT);
         }}>
         <NodePlayground config={{ selectedNodeId: "nodeId1", vimMode: false }} />
       </PanelSetup>
     );
   })
+
   .add("sidebar open - docs explorer", () => {
     return (
       <PanelSetup
         fixture={{ ...fixture, userNodes }}
         onMount={(el) => {
-          setImmediate(() => {
+          setTimeout(() => {
             el.querySelectorAll("[data-test=docs-explorer]")[0].click();
-          });
+          }, SIDEBAR_OPEN_CLICK_TIMEOUT);
         }}>
         <NodePlayground config={{ selectedNodeId: "nodeId1", vimMode: false }} />
       </PanelSetup>
     );
   })
+  .add("sidebar open - utils explorer - selected utility", () => {
+    return (
+      <PanelSetup
+        fixture={{ ...fixture, userNodes }}
+        onMount={(el) => {
+          setTimeout(() => {
+            el.querySelectorAll("[data-test=utils-explorer]")[0].click();
+          }, SIDEBAR_OPEN_CLICK_TIMEOUT);
+        }}>
+        <NodePlayground config={{ selectedNodeId: "nodeId1", vimMode: false }} />
+      </PanelSetup>
+    );
+  })
+  .add("sidebar open - templates explorer", () => {
+    return (
+      <PanelSetup
+        fixture={{ ...fixture, userNodes }}
+        onMount={(el) => {
+          setTimeout(() => {
+            el.querySelectorAll("[data-test=templates-explorer]")[0].click();
+          }, SIDEBAR_OPEN_CLICK_TIMEOUT);
+        }}>
+        <NodePlayground />
+      </PanelSetup>
+    );
+  })
+
   .add("sidebar - code snippets wrap", () => {
     const Story = () => {
       const [explorer, updateExplorer] = React.useState<Explorer>("docs");
       return (
         <PanelSetup fixture={{ ...fixture, userNodes }}>
           <Sidebar
-            needsUserTrust={false}
-            nodeDiagnosticsAndLogs={{}}
+            userNodeDiagnostics={{}}
             explorer={explorer}
             updateExplorer={updateExplorer}
             selectedNodeId={null}
@@ -116,6 +309,9 @@ storiesOf("<NodePlayground>", module)
             deleteNode={() => {}}
             selectNode={() => {}}
             otherMarkdownDocsForTest={testDocs}
+            setScriptOverride={() => {}}
+            script={null}
+            addNewNode={() => {}}
           />
         </PanelSetup>
       );
@@ -133,14 +329,19 @@ storiesOf("<NodePlayground>", module)
     );
   });
 
-storiesOf("NodePlayground - <BottomBar>", module)
-  .addDecorator(withScreenshot({ delay: 1000 }))
+const OPEN_BOTTOM_BAR_TIMEOUT = 500;
 
+storiesOf("NodePlayground - <BottomBar>", module)
+  .addParameters({
+    screenshot: {
+      delay: 2500,
+    },
+  })
   .add("no errors or logs - closed", () => (
     <PanelSetup
       fixture={{
         ...fixture,
-        userNodes: { nodeId1: { name: "/some/custom/node", sourceCode: "" } },
+        userNodes: { nodeId1: { name: "/webviz_node/node", sourceCode: "" } },
         userNodeDiagnostics: { nodeId1: { diagnostics: [] } },
       }}>
       <NodePlayground config={{ selectedNodeId: "nodeId1", vimMode: false }} />
@@ -150,16 +351,16 @@ storiesOf("NodePlayground - <BottomBar>", module)
     <PanelSetup
       fixture={{
         ...fixture,
-        userNodes: { nodeId1: { name: "/some/custom/node", sourceCode: "" } },
+        userNodes: { nodeId1: { name: "/webviz_node/node", sourceCode: "" } },
         userNodeDiagnostics: { nodeId1: { diagnostics: [] } },
       }}
       onMount={(el) => {
-        setImmediate(() => {
+        setTimeout(() => {
           const diagnosticsErrorsLabel = el.querySelector("[data-test=np-errors]");
           if (diagnosticsErrorsLabel) {
             diagnosticsErrorsLabel.click();
           }
-        });
+        }, OPEN_BOTTOM_BAR_TIMEOUT);
       }}>
       <NodePlayground config={{ selectedNodeId: "nodeId1", vimMode: false }} />
     </PanelSetup>
@@ -168,16 +369,16 @@ storiesOf("NodePlayground - <BottomBar>", module)
     <PanelSetup
       fixture={{
         ...fixture,
-        userNodes: { nodeId1: { name: "/some/custom/node", sourceCode: "" } },
+        userNodes: { nodeId1: { name: "/webviz_node/node", sourceCode: "" } },
         userNodeDiagnostics: { nodeId1: { diagnostics: [] } },
       }}
       onMount={(el) => {
-        setImmediate(() => {
+        setTimeout(() => {
           const logsLabel = el.querySelector("[data-test=np-logs]");
           if (logsLabel) {
             logsLabel.click();
           }
-        });
+        }, OPEN_BOTTOM_BAR_TIMEOUT);
       }}>
       <NodePlayground config={{ selectedNodeId: "nodeId1", vimMode: false }} />
     </PanelSetup>
@@ -186,7 +387,7 @@ storiesOf("NodePlayground - <BottomBar>", module)
     <PanelSetup
       fixture={{
         ...fixture,
-        userNodes: { nodeId1: { name: "/some/custom/node", sourceCode: "" } },
+        userNodes: { nodeId1: { name: "/webviz_node/node", sourceCode: "" } },
         userNodeDiagnostics: {
           nodeId1: {
             diagnostics: [
@@ -231,7 +432,7 @@ storiesOf("NodePlayground - <BottomBar>", module)
     <PanelSetup
       fixture={{
         ...fixture,
-        userNodes: { nodeId1: { name: "/some/custom/node", sourceCode: "" } },
+        userNodes: { nodeId1: { name: "/webviz_node/node", sourceCode: "" } },
         userNodeDiagnostics: {
           nodeId1: {
             diagnostics: [
@@ -270,12 +471,12 @@ storiesOf("NodePlayground - <BottomBar>", module)
         },
       }}
       onMount={(el) => {
-        setImmediate(() => {
+        setTimeout(() => {
           const diagnosticsErrorsLabel = el.querySelector("[data-test=np-errors]");
           if (diagnosticsErrorsLabel) {
             diagnosticsErrorsLabel.click();
           }
-        });
+        }, OPEN_BOTTOM_BAR_TIMEOUT);
       }}>
       <NodePlayground config={{ selectedNodeId: "nodeId1", vimMode: false }} />
     </PanelSetup>
@@ -286,7 +487,7 @@ storiesOf("NodePlayground - <BottomBar>", module)
         ...fixture,
         userNodes: {
           nodeId1: {
-            name: "/some/custom/node",
+            name: "/webviz_node/node",
             sourceCode: sourceCodeWithLogs,
           },
         },
@@ -302,7 +503,7 @@ storiesOf("NodePlayground - <BottomBar>", module)
         ...fixture,
         userNodes: {
           nodeId1: {
-            name: "/some/custom/node",
+            name: "/webviz_node/node",
             sourceCode: sourceCodeWithLogs,
           },
         },
@@ -310,12 +511,12 @@ storiesOf("NodePlayground - <BottomBar>", module)
         userNodeLogs: { nodeId1: { logs } },
       }}
       onMount={(el) => {
-        setImmediate(() => {
+        setTimeout(() => {
           const logsLabel = el.querySelector("[data-test=np-logs]");
           if (logsLabel) {
             logsLabel.click();
           }
-        });
+        }, OPEN_BOTTOM_BAR_TIMEOUT);
       }}>
       <NodePlayground config={{ selectedNodeId: "nodeId1", vimMode: false }} />
     </PanelSetup>
@@ -324,12 +525,12 @@ storiesOf("NodePlayground - <BottomBar>", module)
     <PanelSetup
       fixture={{
         ...fixture,
-        userNodes: { nodeId1: { name: "/some/custom/node", sourceCode: "" } },
+        userNodes: { nodeId1: { name: "/webviz_node/node", sourceCode: "" } },
         userNodeDiagnostics: { nodeId1: { diagnostics: [] } },
         userNodeLogs: { nodeId1: { logs } },
       }}
       onMount={(el) => {
-        setImmediate(() => {
+        setTimeout(() => {
           const logsLabel = el.querySelector("[data-test=np-logs]");
           if (logsLabel) {
             logsLabel.click();
@@ -338,22 +539,39 @@ storiesOf("NodePlayground - <BottomBar>", module)
               clearBtn.click();
             }
           }
-        });
+        }, OPEN_BOTTOM_BAR_TIMEOUT);
       }}>
-      <NodePlayground config={{ selectedNodeId: "nodeId1", vimMode: false }} />
-    </PanelSetup>
-  ))
-  .add("security pop up", () => (
-    <PanelSetup fixture={{ ...fixture, userNodes, userNodeFlags: { id: "nodeId1", trusted: false } }}>
       <NodePlayground config={{ selectedNodeId: "nodeId1", vimMode: false }} />
     </PanelSetup>
   ));
 
 storiesOf("<NodePlaygroundSettings>", module)
-  .addDecorator(withScreenshot({ delay: 1000 }))
-  .add("enabled vim mode", () => (
-    <NodePlaygroundSettings config={{ selectedNodeId: undefined, vimMode: true }} saveConfig={() => {}} />
+  .addParameters({
+    screenshot: {
+      delay: 1000,
+    },
+  })
+  .add("enabled auto format on save", () => (
+    <NodePlaygroundSettings
+      config={{ selectedNodeId: undefined, autoFormatOnSave: true, vimMode: false }}
+      saveConfig={() => {}}
+    />
   ))
-  .add("disabled vim mode", () => (
-    <NodePlaygroundSettings config={{ selectedNodeId: undefined, vimMode: false }} saveConfig={() => {}} />
+  .add("enabled vim mode", () => (
+    <NodePlaygroundSettings
+      config={{ selectedNodeId: undefined, autoFormatOnSave: false, vimMode: true }}
+      saveConfig={() => {}}
+    />
+  ))
+  .add("both modes disabled", () => (
+    <NodePlaygroundSettings
+      config={{ selectedNodeId: undefined, autoFormatOnSave: false, vimMode: false }}
+      saveConfig={() => {}}
+    />
+  ))
+  .add("both modes enabled", () => (
+    <NodePlaygroundSettings
+      config={{ selectedNodeId: undefined, autoFormatOnSave: true, vimMode: true }}
+      saveConfig={() => {}}
+    />
   ));

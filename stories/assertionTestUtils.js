@@ -16,8 +16,8 @@ export async function timeout(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-type Story = (setTestData: (any) => void) => React$Element<any>;
-type Assertion = (getTestData: () => any) => Promise<void>;
+type Story = (setTestData: (any) => void, state: any) => React$Element<any>;
+type Assertion = (getTestData: () => any, setState: (any) => void) => Promise<void>;
 type AssertionTest = {|
   story: Story,
   assertions: Assertion,
@@ -27,7 +27,7 @@ type AssertionTest = {|
  * This function takes a storybook story and some assertions about it and runs those assertions in the browser as the
  * storybook test is running. It enables treating our storybook stories as tests.
  *
- * This function has an integration with the storybook-chrome-screenshot package that we use to generate screenshots:
+ * This function has an integration with the storycap package that we use to generate screenshots:
  * it adds a `window.waitFor` function that returns a promise that only resolves once the assertions have run.
  *
  * Usage:
@@ -55,11 +55,12 @@ export function assertionTest({ story, assertions }: AssertionTest): () => React
 
   function Component() {
     const [error, setError] = useState<any>();
+    const [state, setState] = useState(null);
     useLayoutEffect(() => {
       const assertionPromise = async () => {
         await timeout(100);
         try {
-          await assertions(getTestData);
+          await assertions(getTestData, setState);
         } catch (error) {
           console.warn(error);
           throw error;
@@ -95,7 +96,7 @@ export function assertionTest({ story, assertions }: AssertionTest): () => React
         <pre>{error.stack}</pre>
       </div>
     ) : (
-      story(setTestData)
+      story(setTestData, state)
     );
   }
   return () => <Component />;

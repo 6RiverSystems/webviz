@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2018-present, GM Cruise LLC
+//  Copyright (c) 2018-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -16,7 +16,7 @@ import LinkToGlobalVariable from "./LinkToGlobalVariable";
 import UnlinkGlobalVariable from "./UnlinkGlobalVariable";
 import UnlinkGlobalVariables from "./UnlinkGlobalVariables";
 import UnlinkWrapper from "./UnlinkWrapper";
-import colors from "webviz-core/src/styles/colors.module.scss";
+import { colors } from "webviz-core/src/util/sharedStyleConstants";
 
 const SWrapper = styled.span`
   display: inline-flex;
@@ -36,7 +36,7 @@ export const SGlobalVariableLink = styled.span`
   align-items: center;
   word-break: normal;
   .icon {
-    color: ${colors.highlight};
+    color: ${colors.BLUE};
   }
   .link-icon {
     opacity: 0.2;
@@ -54,7 +54,7 @@ export const SGlobalVariableLink = styled.span`
 `;
 
 export const SGlobalVariableForm = styled.form`
-  background-color: ${colors.toolbar};
+  background-color: ${colors.DARK3};
   margin-left: -16px;
   padding: 12px;
   width: 240px;
@@ -129,8 +129,8 @@ export default function GlobalVariableLink({
             linkedGlobalVariable={linkedGlobalVariableLocal}
             name={linkedGlobalVariableLocal.name}
             tooltip={unlinkTooltip}>
-            {({ setIsOpen, linkedGlobalVariable }) => (
-              <UnlinkGlobalVariable linkedGlobalVariable={linkedGlobalVariable} setIsOpen={setIsOpen} />
+            {({ setIsOpen, linkedGlobalVariable: linkedVar }) => (
+              <UnlinkGlobalVariable linkedGlobalVariable={linkedVar} setIsOpen={setIsOpen} />
             )}
           </UnlinkWrapper>
         )}

@@ -1,11 +1,12 @@
 // @flow
 //
-//  Copyright (c) 2018-present, GM Cruise LLC
+//  Copyright (c) 2018-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
 //  You may not use this file except in compliance with the License.
-import { first, omit } from "lodash";
+
+import { first, omit, sortBy } from "lodash";
 import * as React from "react";
 import Tree from "react-json-tree";
 import { type MouseEventObject } from "regl-worldview";
@@ -13,36 +14,48 @@ import styled from "styled-components";
 
 import GlobalVariableLink from "./GlobalVariableLink/index";
 import type { InteractionData } from "./types";
-import { type LinkedGlobalVariables } from "./useLinkedGlobalVariables";
 import Dropdown from "webviz-core/src/components/Dropdown";
+import { getGlobalHooks } from "webviz-core/src/loadWebviz";
+import { Renderer } from "webviz-core/src/panels/ThreeDimensionalViz/index";
+import { getInstanceObj } from "webviz-core/src/panels/ThreeDimensionalViz/threeDimensionalVizUtils";
+import { deepParse, isBobject } from "webviz-core/src/util/binaryObjects";
 import { jsonTreeTheme } from "webviz-core/src/util/globalConstants";
+
+// Sort the keys of objects to make their presentation more predictable
+const PREFERRED_OBJECT_KEY_ORDER = [
+  "id",
+  "ns",
+  "type",
+  "action",
+  "header",
+  "lifetime",
+  "color",
+  "colors",
+  "pose",
+  "points",
+].reverse();
 
 const SObjectDetails = styled.div`
   padding: 12px 0 16px 0;
 `;
 
-type CommonProps = {
-  interactionData: ?InteractionData,
-  linkedGlobalVariables: LinkedGlobalVariables,
-};
+type CommonProps = $ReadOnly<{| interactionData: ?InteractionData |}>;
 
-type WrapperProps = CommonProps & {
-  selectedObject: MouseEventObject,
-};
+type WrapperProps = $ReadOnly<
+  CommonProps & {|
+    selectedObject: MouseEventObject,
+  |}
+>;
 
-type Props = CommonProps & {
-  objectToDisplay: any,
-};
+type Props = $ReadOnly<
+  CommonProps & {|
+    objectToDisplay: any,
+  |}
+>;
 
-export const getInstanceObj = (marker: any, idx: number) => {
-  return marker.metadataByIndex && marker.metadataByIndex[idx];
-};
-
-export default function ObjectDetailsWrapper({
-  interactionData,
-  linkedGlobalVariables,
-  selectedObject: { object, instanceIndex },
-}: WrapperProps) {
+// Used for switching between views of individual and combined objects.
+// TODO(steel): Only show the combined object when the individual objects are semantically related.
+function ObjectDetailsWrapper({ interactionData, selectedObject: { object, instanceIndex } }: WrapperProps) {
   const [showInstance, setShowInstance] = React.useState(true);
   const instanceObject = getInstanceObj(object, instanceIndex);
   const dropdownText = {
@@ -50,33 +63,39 @@ export default function ObjectDetailsWrapper({
     full: "Show full object",
   };
 
-  return instanceObject ? (
+  const { logger, eventNames, eventTags } = getGlobalHooks().getEventLogger();
+  const updateShowInstance = (shouldShowInstance) => {
+    setShowInstance(shouldShowInstance);
+    logger({
+      name: eventNames["3D_PANEL.OBJECT_DETAILS_SHOW_INSTANCE"],
+      tags: { [eventTags.PANEL_TYPE]: Renderer.panelType },
+    });
+  };
+
+  const objectToDisplay = instanceObject && showInstance ? instanceObject : object;
+  const parsedObject = React.useMemo(
+    () => (isBobject(objectToDisplay) ? deepParse(objectToDisplay) : objectToDisplay),
+    [objectToDisplay]
+  );
+  return (
     <div>
-      <Dropdown
-        position="below"
-        value={showInstance}
-        text={showInstance ? dropdownText.instance : dropdownText.full}
-        onChange={setShowInstance}>
-        <span value={true}>{dropdownText.instance}</span>
-        <span value={false}>{dropdownText.full}</span>
-      </Dropdown>
-      <ObjectDetails
-        interactionData={interactionData}
-        linkedGlobalVariables={linkedGlobalVariables}
-        objectToDisplay={showInstance ? instanceObject : object}
-      />
+      {instanceObject && (
+        <Dropdown
+          position="below"
+          value={showInstance}
+          text={showInstance ? dropdownText.instance : dropdownText.full}
+          onChange={updateShowInstance}>
+          <span value={true}>{dropdownText.instance}</span>
+          <span value={false}>{dropdownText.full}</span>
+        </Dropdown>
+      )}
+      <ObjectDetails interactionData={interactionData} objectToDisplay={parsedObject} />
     </div>
-  ) : (
-    <ObjectDetails
-      interactionData={interactionData}
-      linkedGlobalVariables={linkedGlobalVariables}
-      objectToDisplay={object}
-    />
   );
 }
 
-function ObjectDetails({ interactionData, linkedGlobalVariables, objectToDisplay }: Props) {
-  const topic = (interactionData && interactionData.topic) || "";
+function ObjectDetails({ interactionData, objectToDisplay }: Props) {
+  const topic = interactionData?.topic ?? "";
   const originalObject = omit(objectToDisplay, "interactionData");
 
   if (!topic) {
@@ -94,22 +113,29 @@ function ObjectDetails({ interactionData, linkedGlobalVariables, objectToDisplay
     );
   }
 
+  const sortedDataObject = Object.fromEntries(
+    sortBy(Object.keys(originalObject), (key) => -PREFERRED_OBJECT_KEY_ORDER.indexOf(key)).map((key) => [
+      key,
+      originalObject[key],
+    ])
+  );
+
   return (
     <SObjectDetails>
       <Tree
-        data={originalObject}
-        shouldExpandNode={(markerKeyPath, data, level) => level < 2}
+        data={sortedDataObject}
+        shouldExpandNode={() => false}
         invertTheme={false}
         theme={{ ...jsonTreeTheme, tree: { margin: 0 } }}
         hideRoot
         getItemString={(type, data, itemType, itemString) => <span>{itemString}</span>}
-        labelRenderer={(markerKeyPath: string[], p1, p2, hasChildren: boolean, ...rest) => {
+        labelRenderer={(markerKeyPath: string[], p1, p2, hasChildren: boolean) => {
           const label = first(markerKeyPath);
           if (!hasChildren) {
             return <span style={{ padding: "0 4px" }}>{label}</span>;
           }
 
-          let objectForPath = originalObject;
+          let objectForPath = sortedDataObject;
           for (let i = markerKeyPath.length - 1; i >= 0; i--) {
             objectForPath = objectForPath[markerKeyPath[i]];
             if (!objectForPath) {
@@ -145,3 +171,5 @@ function ObjectDetails({ interactionData, linkedGlobalVariables, objectToDisplay
     </SObjectDetails>
   );
 }
+
+export default ObjectDetailsWrapper;

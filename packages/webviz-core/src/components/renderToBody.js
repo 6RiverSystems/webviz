@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2018-present, GM Cruise LLC
+//  Copyright (c) 2018-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -16,7 +16,8 @@ import history from "webviz-core/src/util/history";
 
 type RenderedToBodyHandle = {| update: (React.Element<*>) => void, remove: () => void |};
 
-export default function renderToBody(element: React.Element<*>): RenderedToBodyHandle {
+// TODO(Audrey): change the `any` time to React.Element<*> and flow errors.
+export default function renderToBody(element: any): RenderedToBodyHandle {
   const container = document.createElement("div");
   container.dataset.modalcontainer = "true";
   if (!document.body) {

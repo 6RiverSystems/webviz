@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2018-present, GM Cruise LLC
+//  Copyright (c) 2018-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -15,6 +15,7 @@ export type PanelContextType<T> = {|
   type: string,
   id: string,
   title: string,
+  tabId?: string,
 
   // TODO(PanelAPI): move to usePanelConfig()
   config: PanelConfig,
@@ -23,6 +24,10 @@ export type PanelContextType<T> = {|
   // TODO(PanelAPI): move to usePanelActions()
   updatePanelConfig: UpdatePanelConfig<T>,
   openSiblingPanel: OpenSiblingPanel,
+  enterFullscreen: () => void,
+
+  isHovered: boolean,
+  isFocused: boolean,
 |};
 // Context used for components to know which panel they are inside
 const PanelContext = React.createContext<?PanelContextType<PanelConfig>>();

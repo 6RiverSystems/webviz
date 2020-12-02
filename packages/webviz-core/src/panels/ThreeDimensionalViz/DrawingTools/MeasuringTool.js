@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2018-present, GM Cruise LLC
+//  Copyright (c) 2018-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -13,7 +13,7 @@ import { type ReglClickInfo } from "regl-worldview";
 import type { Point } from "webviz-core/src/types/Messages";
 import { arrayToPoint } from "webviz-core/src/util";
 
-export type MeasureState = "idle" | "place-start" | "place-finish" | "done";
+export type MeasureState = "idle" | "place-start" | "place-finish";
 
 export type MeasureInfo = {|
   measureState: MeasureState,
@@ -31,8 +31,7 @@ export default class MeasuringTool extends React.Component<Props> {
   mouseDownCoords: number[] = [-1, -1];
 
   toggleMeasureState = () => {
-    const newMeasureState =
-      this.props.measureState === "idle" || this.props.measureState === "done" ? "place-start" : "idle";
+    const newMeasureState = this.props.measureState === "idle" ? "place-start" : "idle";
     this.props.onMeasureInfoChange({
       measureState: newMeasureState,
       measurePoints: { start: undefined, end: undefined },
@@ -46,11 +45,11 @@ export default class MeasuringTool extends React.Component<Props> {
     });
   };
 
-  _canvasMouseDownHandler = (e: MouseEvent, clickInfo: ReglClickInfo) => {
+  _canvasMouseDownHandler = (e: MouseEvent, _clickInfo: ReglClickInfo) => {
     this.mouseDownCoords = [e.clientX, e.clientY];
   };
 
-  _canvasMouseUpHandler = (e: MouseEvent, clickInfo: ReglClickInfo) => {
+  _canvasMouseUpHandler = (e: MouseEvent, _clickInfo: ReglClickInfo) => {
     const mouseUpCoords = [e.clientX, e.clientY];
     const { measureState, measurePoints, onMeasureInfoChange } = this.props;
 
@@ -58,17 +57,15 @@ export default class MeasuringTool extends React.Component<Props> {
       return;
     }
 
-    let newMeasureState = measureState;
     if (measureState === "place-start") {
-      newMeasureState = "place-finish";
+      onMeasureInfoChange({ measureState: "place-finish", measurePoints });
     } else if (measureState === "place-finish") {
-      newMeasureState = "done";
+      // Use setImmediate so there is a tick between resetting the measure state and clicking the 3D canvas.
+      // If we call onMeasureInfoChange right away, the clicked object context menu will show up upon finishing measuring.
+      setImmediate(() => {
+        onMeasureInfoChange({ measurePoints, measureState: "idle" });
+      });
     }
-
-    onMeasureInfoChange({
-      measureState: newMeasureState,
-      measurePoints,
-    });
   };
 
   _canvasMouseMoveHandler = (e: MouseEvent, clickInfo: ReglClickInfo) => {

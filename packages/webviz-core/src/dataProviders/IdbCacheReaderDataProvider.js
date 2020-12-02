@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2018-present, GM Cruise LLC
+//  Copyright (c) 2018-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -10,8 +10,14 @@ import microMemoize from "micro-memoize";
 import { Time } from "rosbag";
 
 import { MESSAGES_STORE_NAME, getIdbCacheDataProviderDatabase, TIMESTAMP_INDEX } from "./IdbCacheDataProviderDatabase";
-import { type DataProvider, type InitializationResult, type DataProviderMessage } from "./types";
-import type { DataProviderDescriptor, ExtensionPoint, GetDataProvider } from "webviz-core/src/dataProviders/types";
+import { type DataProvider, type InitializationResult } from "./types";
+import type {
+  DataProviderDescriptor,
+  ExtensionPoint,
+  GetDataProvider,
+  GetMessagesResult,
+  GetMessagesTopics,
+} from "webviz-core/src/dataProviders/types";
 import type { Progress } from "webviz-core/src/players/types";
 import Database from "webviz-core/src/util/indexeddb/Database";
 import { type Range, deepIntersect, isRangeCoveredByRanges } from "webviz-core/src/util/ranges";
@@ -67,7 +73,8 @@ export default class IdbCacheReaderDataProvider implements DataProvider {
     return result;
   }
 
-  async getMessages(startTime: Time, endTime: Time, topics: string[]): Promise<DataProviderMessage[]> {
+  async getMessages(startTime: Time, endTime: Time, subscriptions: GetMessagesTopics): Promise<GetMessagesResult> {
+    const topics = subscriptions.rosBinaryMessages || [];
     const range = {
       start: toNanoSec(subtractTimes(startTime, this._startTime)),
       end: toNanoSec(subtractTimes(endTime, this._startTime)) + 1, // `Range` is defined with `end` being exclusive.
@@ -75,8 +82,10 @@ export default class IdbCacheReaderDataProvider implements DataProvider {
     if (!isRangeCoveredByRanges(range, deeplyIntersectedTopics(topics, this._rangesByTopic))) {
       // We use the child's `getMessages` promise to signal that the data is available in the database,
       // but we don't expect it to return actual messages.
-      const getMessagesResult = await this._provider.getMessages(startTime, endTime, topics);
-      if (getMessagesResult.length) {
+      const { parsedMessages, rosBinaryMessages, bobjects } = await this._provider.getMessages(startTime, endTime, {
+        rosBinaryMessages: topics,
+      });
+      if (parsedMessages?.length || rosBinaryMessages?.length || bobjects?.length) {
         throw new Error(
           "IdbCacheReaderDataProvider should not be receiving messages from child; be sure to use a IdbCacheWriterDataProvider below"
         );
@@ -85,15 +94,32 @@ export default class IdbCacheReaderDataProvider implements DataProvider {
       // If we did find the range, *still* call `getMessages` so we signal to the `IdbCacheWriterDataProvider`
       // which part of the bag we care about. (Specifically this is for if you subscribe to a new topic while playback
       // is paused, the writer needs to know where we have last been reading in order to start buffering there.)
-      this._provider.getMessages(startTime, endTime, topics);
+      this._provider.getMessages(startTime, endTime, { rosBinaryMessages: topics });
     }
 
-    // `Range` has exclusive `end`, but `getRange` has an inclusive `end`.
-    const messages = await this._db.getRange(MESSAGES_STORE_NAME, TIMESTAMP_INDEX, range.start, range.end - 1);
-
-    // We don't remove messages from unsubscribed topics from the database, so just filter them out
-    // here.
-    return messages.map(({ value }) => value.message).filter(({ topic }) => topics.includes(topic));
+    const tx = this._db.transaction(MESSAGES_STORE_NAME);
+    const store = tx.objectStore(MESSAGES_STORE_NAME);
+    const messagePromises = [];
+    // We use a cursor for just the keys, since we don't want to fetch the actual message if the
+    // topic doesn't match, since that can be slow.
+    store.index(TIMESTAMP_INDEX).iterateKeyCursor(IDBKeyRange.bound(range.start, range.end - 1), (cursor) => {
+      if (!cursor) {
+        return;
+      }
+      // Primary key is "timestamp|||arbitrary index|||topic".
+      const topic = cursor.primaryKey.split("|||")[2];
+      if (topics.includes(topic)) {
+        messagePromises.push(store.get(cursor.primaryKey));
+      }
+      cursor.continue();
+    });
+    await tx.complete;
+    // messagePromises will only be filled after `tx.complete`, so await for `tx.complete` first.
+    return {
+      rosBinaryMessages: (await Promise.all(messagePromises)).map(({ message }) => message),
+      parsedMessages: undefined,
+      bobjects: undefined,
+    };
   }
 
   close(): Promise<void> {

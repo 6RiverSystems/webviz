@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2019-present, GM Cruise LLC
+//  Copyright (c) 2019-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -14,5 +14,9 @@
 export { default as useDataSourceInfo } from "./useDataSourceInfo";
 export type { DataSourceInfo } from "./useDataSourceInfo";
 
-export { useMessages } from "webviz-core/src/components/MessageHistory/MessageHistoryOnlyTopics";
-export type { RequestedTopic } from "webviz-core/src/components/MessageHistory/MessageHistoryOnlyTopics";
+export { useMessageReducer } from "./useMessageReducer";
+export type { RequestedTopic } from "./useMessageReducer";
+
+export { useMessagesByTopic } from "./useMessagesByTopic";
+export type { MessagesByTopic } from "./useMessagesByTopic";
+export { useBlocksByTopic } from "./useBlocksByTopic";

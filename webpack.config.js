@@ -15,6 +15,8 @@ const TerserPlugin = require("terser-webpack-plugin");
 const visit = require("unist-util-visit");
 const webpack = require("webpack");
 
+const STATIC_WEBVIZ = process.env.STATIC_WEBVIZ === "true";
+
 // Enable smart quotes:
 // https://github.com/mdx-js/mdx/blob/ad58be384c07672dc415b3d9d9f45dcebbfd2eb8/docs/advanced/retext-plugins.md
 const smartypantsProcessor = retext().use(retextSmartypants);
@@ -51,13 +53,19 @@ const gitInfo = (() => {
 
 module.exports = {
   devtool: "cheap-module-eval-source-map",
-  entry: {
-    docs: "./docs/src/index.js",
-    webvizCoreBundle: "./packages/webviz-core/src/index.js",
-  },
+  entry: STATIC_WEBVIZ
+    ? {
+        webvizCoreBundle: "./packages/webviz-core/src/index.js",
+      }
+    : {
+        docs: "./docs/src/index.js",
+        webvizCoreBundle: "./packages/webviz-core/src/index.js",
+      },
   output: {
-    path: path.resolve(`${__dirname}/docs/public/dist`),
-    publicPath: "/dist/",
+    path: STATIC_WEBVIZ
+      ? path.resolve(`${__dirname}/__static_webviz__`)
+      : path.resolve(`${__dirname}/docs/public/dist`),
+    publicPath: STATIC_WEBVIZ ? "" : "/dist/",
     pathinfo: true,
     filename: "[name].js",
     devtoolModuleFilenameTemplate: (info) => path.resolve(info.absoluteResourcePath),
@@ -87,6 +95,7 @@ module.exports = {
       },
       {
         test: /\.worker\.js$/,
+        exclude: /node_modules/,
         use: {
           loader: "worker-loader",
           options: { name: "[name].[ext]?[hash]" },
@@ -109,6 +118,13 @@ module.exports = {
             },
           },
         ],
+      },
+      {
+        // We use stringified Typescript in Node Playground.
+        // eslint-disable-next-line no-useless-escape
+        test: /typescript\/[\.\/\w]*\.ts$/,
+        exclude: /node_modules/,
+        use: { loader: "raw-loader" },
       },
       { test: /\.md$/, loader: "raw-loader" },
       { test: /\.svg$/, loader: "react-svg-loader" },
@@ -143,7 +159,15 @@ module.exports = {
       },
       { test: /\.scss$/, loader: "sass-loader", options: { sourceMap: true } },
       { test: /\.woff2?$/, loader: "url-loader" },
-      { test: /\.(glb|bag)$/, loader: "file-loader" },
+      { test: /\.(glb|bag|ttf|bin)$/, loader: "file-loader" },
+      {
+        test: /node_modules\/compressjs\/.*\.js/,
+        loader: "string-replace-loader",
+        options: {
+          search: "if (typeof define !== 'function') { var define = require('amdefine')(module); }",
+          replace: "/* webviz: removed broken amdefine shim (https://github.com/webpack/webpack/issues/5316) */",
+        },
+      },
     ],
   },
   optimization: {
@@ -189,6 +213,9 @@ if (process.env.NODE_ENV === "production") {
   module.exports.mode = "production";
   module.exports.devtool = "source-map";
 } else {
+  if (STATIC_WEBVIZ) {
+    throw new Error("If STATIC_WEBVIZ=true is set the NODE_ENV=production must be set!");
+  }
   module.exports.mode = "development";
   module.exports.entry.docs = [module.exports.entry.docs, "webpack-hot-middleware/client"];
   module.exports.plugins.push(new webpack.HotModuleReplacementPlugin());

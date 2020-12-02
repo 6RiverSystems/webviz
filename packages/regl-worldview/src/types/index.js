@@ -41,6 +41,7 @@ export type Regl = {
     pointSizeDims: [number, number],
   },
   prop: (string) => any,
+  context: (string) => any,
 };
 
 export type CommandProps = {
@@ -112,7 +113,7 @@ export type ComponentReglClickInfo = {
 
 export type MouseHandler = (SyntheticMouseEvent<HTMLCanvasElement>, ReglClickInfo) => void;
 
-export type ComponentMouseHandler = (MouseEvent, ComponentReglClickInfo) => void;
+export type ComponentMouseHandler = (SyntheticMouseEvent<HTMLCanvasElement>, ComponentReglClickInfo) => void;
 
 export type Coordinate = [number, number];
 
@@ -205,6 +206,29 @@ export type PolygonType = BaseShape & {
 export type MouseEventObject = {
   object: BaseShape,
   instanceIndex: ?number,
+};
+
+export type DepthState = {
+  enable?: boolean,
+  mask?: boolean,
+};
+
+export type BlendFuncValue = string | number;
+
+export type BlendState = {
+  enable?: boolean,
+  func?:
+    | BlendFuncValue
+    | {
+        src?: BlendFuncValue,
+        dst?: BlendFuncValue,
+        srcAlpha?: BlendFuncValue,
+        srcRGB?: BlendFuncValue,
+        dstRGB?: BlendFuncValue,
+        dstAlpha?: BlendFuncValue,
+      },
+  equation?: string | { rgb: string, alpha: string },
+  color?: Vec4,
 };
 
 export type ObjectHitmapId = number;

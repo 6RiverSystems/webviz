@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2019-present, GM Cruise LLC
+//  Copyright (c) 2019-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -11,11 +11,12 @@ import React from "react";
 
 import { MessagePipelineConsumer } from "../components/MessagePipeline";
 import Internals from "./Internals";
-import MessageHistory from "webviz-core/src/components/MessageHistory";
+import MessageHistoryDEPRECATED from "webviz-core/src/components/MessageHistoryDEPRECATED";
 import PanelSetup from "webviz-core/src/stories/PanelSetup";
-import { downloadTextFile } from "webviz-core/src/util";
+import { downloadTextFile, objectValues } from "webviz-core/src/util";
 
 const mockDownloadTextFile: any = downloadTextFile;
+(objectValues: any).mockImplementation(Object.values); // broken by module mock
 jest.mock("webviz-core/src/util");
 
 describe("<Internals>", () => {
@@ -24,34 +25,35 @@ describe("<Internals>", () => {
     const wrapper = mount(
       <PanelSetup
         fixture={{
-          frame: {},
           topics: [{ name: "/foo", datatype: "foo_msgs/Foo" }],
+          frame: {},
         }}>
         <Internals />
         <MessagePipelineConsumer>{contextFn}</MessagePipelineConsumer>
       </PanelSetup>
     );
-
     expect(wrapper.find("[data-test='internals-subscriptions']").text()).not.toContain("/foo");
     expect(contextFn.mock.calls).toEqual([[expect.objectContaining({ subscriptions: [] })]]);
-    contextFn.mockClear();
+    wrapper.unmount();
 
-    wrapper.setProps({
-      children: (
-        <>
-          <Internals />
-          <MessagePipelineConsumer>{contextFn}</MessagePipelineConsumer>
-          <MessageHistory paths={["/foo"]}>{() => null}</MessageHistory>
-        </>
-      ),
-    });
-
-    expect(contextFn.mock.calls).toEqual([
+    const anotherContextFn = jest.fn().mockReturnValue(null);
+    const wrapperWithDeprecatedMessageHistory = mount(
+      <PanelSetup
+        fixture={{
+          topics: [{ name: "/foo", datatype: "foo_msgs/Foo" }],
+          frame: {},
+        }}>
+        <Internals />
+        <MessagePipelineConsumer>{anotherContextFn}</MessagePipelineConsumer>
+        <MessageHistoryDEPRECATED paths={["/foo"]}>{() => null}</MessageHistoryDEPRECATED>
+      </PanelSetup>
+    );
+    expect(anotherContextFn.mock.calls).toEqual([
       [expect.objectContaining({ subscriptions: [] })],
       [expect.objectContaining({ subscriptions: [expect.objectContaining({ topic: "/foo" })] })],
     ]);
-    expect(wrapper.find("[data-test='internals-subscriptions']").text()).toContain("/foo");
-    wrapper.unmount();
+    expect(wrapperWithDeprecatedMessageHistory.find("[data-test='internals-subscriptions']").text()).toContain("/foo");
+    wrapperWithDeprecatedMessageHistory.unmount();
   });
 
   it("records data and exports JSON fixture", async () => {
@@ -62,7 +64,7 @@ describe("<Internals>", () => {
           topics: [{ name: "/foo", datatype: "foo_msgs/Foo" }],
         }}>
         <Internals />
-        <MessageHistory paths={["/foo"]}>{() => null}</MessageHistory>
+        <MessageHistoryDEPRECATED paths={["/foo"]}>{() => null}</MessageHistoryDEPRECATED>
       </PanelSetup>
     );
 
@@ -83,9 +85,7 @@ describe("<Internals>", () => {
     mockDownloadTextFile.mockClear();
 
     const message = {
-      op: "message",
       topic: "/foo",
-      datatype: "Foo",
       receiveTime: { sec: 0, nsec: 0 },
       message: {
         value: "hi",
@@ -102,7 +102,10 @@ describe("<Internals>", () => {
 
     downloadButton.simulate("click");
     expect(mockDownloadTextFile.mock.calls).toEqual([
-      [JSON.stringify({ topics: [{ name: "/foo", datatype: "Foo" }], frame: { "/foo": [message] } }), "fixture.json"],
+      [
+        JSON.stringify({ topics: [{ name: "/foo", datatype: "foo_msgs/Foo" }], frame: { "/foo": [message] } }),
+        "fixture.json",
+      ],
     ]);
 
     wrapper.unmount();

@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2019-present, GM Cruise LLC
+//  Copyright (c) 2019-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -8,7 +8,6 @@
 
 import { storiesOf } from "@storybook/react";
 import React from "react";
-import { withScreenshot } from "storybook-chrome-screenshot";
 
 import InteractionContextMenu from "./InteractionContextMenu";
 
@@ -44,8 +43,8 @@ const selectedObject = {
   },
 };
 const sharedProps = {
-  onSelectObject: () => {},
-  selectedObjects: [
+  selectObject: () => {},
+  clickedObjects: [
     { object: { ...selectedObject, interactionData: { topic: "/foo/bar" } }, instanceIndex: undefined },
     { object: { ...selectedObject, interactionData: { topic: "/foo1/bar" }, id: null }, instanceIndex: undefined },
     { object: { ...selectedObject, interactionData: { topic: "/abc/xyz" } }, instanceIndex: 10 },
@@ -68,12 +67,10 @@ const sharedProps = {
   clickedPosition: { clientX: 100, clientY: 200 },
 };
 
-storiesOf("<InteractionContextMenu>", module)
-  .addDecorator(withScreenshot())
-  .add("default", () => {
-    return (
-      <div style={{ background: "#2d2c33", display: "flex", flexDirection: "row", flexWrap: "wrap" }}>
-        <InteractionContextMenu {...sharedProps} />
-      </div>
-    );
-  });
+storiesOf("<InteractionContextMenu>", module).add("default", () => {
+  return (
+    <div style={{ background: "#2d2c33", display: "flex", flexDirection: "row", flexWrap: "wrap" }}>
+      <InteractionContextMenu {...sharedProps} />
+    </div>
+  );
+});

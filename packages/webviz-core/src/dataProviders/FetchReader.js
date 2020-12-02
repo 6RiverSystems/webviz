@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2019-present, GM Cruise LLC
+//  Copyright (c) 2019-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -50,7 +50,20 @@ export default class FetchReader extends Readable {
       });
       return undefined;
     }
-    this._reader = data.body.getReader();
+
+    // The fetch succeeded, but there might still be an error streaming.
+    try {
+      // When a stream is closed or errors, any reader it is locked to is released.
+      // If the getReader method is called on an already locked stream, an exception will be thrown.
+      // This is caused by server-side errors, but we should catch it anyway.
+      this._reader = data.body.getReader();
+    } catch (err) {
+      setImmediate(() => {
+        this.emit("error", new Error(`Request succeeded, but failed to stream: ${this._url}`));
+      });
+      return undefined;
+    }
+
     return this._reader;
   }
 
@@ -67,7 +80,10 @@ export default class FetchReader extends Readable {
           if (done) {
             return this.push(null);
           }
-          this.push(Buffer.from((value: any)));
+          // Flow doesn't know that value is only undefined when value done is true.
+          if (value != null) {
+            this.push(Buffer.from(value.buffer));
+          }
         })
         .catch((err) => {
           // canceling the xhr request causes the promise to reject

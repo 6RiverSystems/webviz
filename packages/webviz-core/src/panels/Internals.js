@@ -1,12 +1,12 @@
 // @flow
 //
-//  Copyright (c) 2018-present, GM Cruise LLC
+//  Copyright (c) 2018-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
 //  You may not use this file except in compliance with the License.
 
-import { groupBy, keyBy, sortBy, mapValues } from "lodash";
+import { groupBy, sortBy, mapValues } from "lodash";
 import * as React from "react";
 import { hot } from "react-hot-loader/root";
 import styled from "styled-components";
@@ -15,21 +15,23 @@ import Button from "webviz-core/src/components/Button";
 import Dropdown from "webviz-core/src/components/Dropdown";
 import Flex from "webviz-core/src/components/Flex";
 import { Item } from "webviz-core/src/components/Menu";
-import MessageHistory from "webviz-core/src/components/MessageHistory";
+import MessageHistoryDEPRECATED from "webviz-core/src/components/MessageHistoryDEPRECATED";
 import { useMessagePipeline } from "webviz-core/src/components/MessagePipeline";
 import Panel from "webviz-core/src/components/Panel";
 import PanelToolbar from "webviz-core/src/components/PanelToolbar";
+import TextContent from "webviz-core/src/components/TextContent";
 import filterMap from "webviz-core/src/filterMap";
 import * as PanelAPI from "webviz-core/src/PanelAPI";
 import type { Topic, Message, SubscribePayload, AdvertisePayload } from "webviz-core/src/players/types";
 import { downloadTextFile } from "webviz-core/src/util";
+import { getTopicsByTopicName } from "webviz-core/src/util/selectors";
 
 const { useCallback } = React;
 
 const RECORD_ALL = "RECORD_ALL";
 
 const Container = styled.div`
-  padding: 8px;
+  padding: 16px;
   overflow-y: auto;
   ul {
     font-size: 10px;
@@ -81,8 +83,11 @@ function getPublisherGroup({ advertiser }: AdvertisePayload): string {
 // Display webviz internal state for debugging and viewing topic dependencies.
 function Internals(): React.Node {
   const { topics } = PanelAPI.useDataSourceInfo();
-  const subscriptions = useMessagePipeline(useCallback(({ subscriptions }) => subscriptions, []));
-  const publishers = useMessagePipeline(useCallback(({ publishers }) => publishers, []));
+  const topicsByName = React.useMemo(() => getTopicsByTopicName(topics), [topics]);
+  const subscriptions = useMessagePipeline(
+    useCallback(({ subscriptions: pipelineSubscriptions }) => pipelineSubscriptions, [])
+  );
+  const publishers = useMessagePipeline(useCallback(({ publishers: pipelinePublishers }) => pipelinePublishers, []));
 
   const [groupedSubscriptions, subscriptionGroups] = React.useMemo(
     () => {
@@ -97,14 +102,12 @@ function Internals(): React.Node {
       if (subscriptions.length === 0) {
         return "(none)";
       }
-      const topicsByName = keyBy(topics, (topic) => topic.name);
-
       return Object.keys(groupedSubscriptions)
         .sort()
         .map((key) => {
           return (
             <React.Fragment key={key}>
-              <p>{key}:</p>
+              <div style={{ marginTop: 16 }}>{key}:</div>
               <ul>
                 {sortBy(groupedSubscriptions[key], (sub) => sub.topic).map((sub, i) => (
                   <li key={i}>
@@ -121,7 +124,7 @@ function Internals(): React.Node {
           );
         });
     },
-    [groupedSubscriptions, subscriptions, topics]
+    [groupedSubscriptions, subscriptions.length, topicsByName]
   );
 
   const renderedPublishers = React.useMemo(
@@ -135,7 +138,7 @@ function Internals(): React.Node {
         .map((key) => {
           return (
             <React.Fragment key={key}>
-              <p>{key}:</p>
+              <div style={{ marginTop: 16 }}>{key}:</div>
               <ul>
                 {sortBy(groupedPublishers[key], (sub) => sub.topic).map((sub, i) => (
                   <li key={i}>
@@ -174,29 +177,35 @@ function Internals(): React.Node {
         return false;
       }
       return (
-        <MessageHistory paths={recordingTopics} historySize={1}>
+        <MessageHistoryDEPRECATED paths={recordingTopics} historySize={1}>
           {({ itemsByPath }) => {
             const frame = mapValues(itemsByPath, (items) => items.map(({ message }) => message));
-            const topics = filterMap(Object.keys(itemsByPath), (topic) =>
-              itemsByPath[topic] && itemsByPath[topic].length
-                ? { name: topic, datatype: itemsByPath[topic][0].message.datatype }
-                : null
-            );
-            recordedData.current = { topics, frame };
+            recordedData.current = {
+              topics: filterMap(Object.keys(itemsByPath), (topic) =>
+                itemsByPath[topic] && itemsByPath[topic].length
+                  ? { name: topic, datatype: topicsByName[topic].datatype }
+                  : null
+              ),
+              frame,
+            };
             return null;
           }}
-        </MessageHistory>
+        </MessageHistoryDEPRECATED>
       );
     },
-    [recordingTopics]
+    [recordingTopics, topicsByName]
   );
 
   return (
     <Container>
       <PanelToolbar floating />
       <h1>Recording</h1>
-      <Flex row wrap>
-        <Button danger onClick={onRecordClick} data-test="internals-record-button">
+      <TextContent>
+        Press to start recording topic data for debug purposes. The latest messages on each topic will be kept and
+        formatted into a fixture that can be used to create a test.
+      </TextContent>
+      <Flex row wrap style={{ padding: "8px 0 32px" }}>
+        <Button isPrimary small onClick={onRecordClick} data-test="internals-record-button">
           {recordingTopics ? `Recording ${recordingTopics.length} topics…` : "Record raw data"}
         </Button>
         <Dropdown
@@ -212,17 +221,13 @@ function Internals(): React.Node {
           ))}
         </Dropdown>
         {recordingTopics && (
-          <Button onClick={downloadJSON} data-test="internals-download-button">
+          <Button small onClick={downloadJSON} data-test="internals-download-button">
             Download JSON
           </Button>
         )}
         {historyRecorder}
       </Flex>
-      <p>
-        Press to start recording topic data for debug purposes. The latest messages on each topic will be kept and
-        formatted into a fixture that can be used to create a test.
-      </p>
-      <Flex row scroll>
+      <Flex row>
         <section data-test="internals-subscriptions">
           <h1>Subscriptions</h1>
           {renderedSubscriptions}

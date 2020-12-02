@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2019-present, GM Cruise LLC
+//  Copyright (c) 2019-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -8,16 +8,25 @@
 
 import { storiesOf } from "@storybook/react";
 import * as React from "react";
-import { withScreenshot } from "storybook-chrome-screenshot";
 import styled from "styled-components";
 
-import Interactions, { OBJECT_TAB_TYPE, LINKED_VARIABLES_TAB_TYPE, type TabType } from "./index";
+import Interactions, { OBJECT_TAB_TYPE, LINKED_VARIABLES_TAB_TYPE } from "./index";
 import useLinkedGlobalVariables from "./useLinkedGlobalVariables";
+import delay from "webviz-core/shared/delay";
+import tick from "webviz-core/shared/tick";
 import Flex from "webviz-core/src/components/Flex";
-import { MockPanelContextProvider } from "webviz-core/src/components/Panel";
+import MockPanelContextProvider from "webviz-core/src/components/MockPanelContextProvider";
 import useGlobalVariables from "webviz-core/src/hooks/useGlobalVariables";
+import { decodeMarker } from "webviz-core/src/panels/ThreeDimensionalViz/commands/PointClouds/decodeMarker";
+import {
+  POINT_CLOUD_MESSAGE,
+  POINT_CLOUD_WITH_ADDITIONAL_FIELDS,
+} from "webviz-core/src/panels/ThreeDimensionalViz/commands/PointClouds/fixture/pointCloudData";
+import { MarkerStory } from "webviz-core/src/panels/ThreeDimensionalViz/stories/MarkerStory";
 import PanelSetup, { triggerInputChange } from "webviz-core/src/stories/PanelSetup";
+import { ScreenshotSizedContainer } from "webviz-core/src/stories/storyHelpers";
 import colors from "webviz-core/src/styles/colors.module.scss";
+import { simulateDragClick } from "webviz-core/src/test/mouseEventsHelper";
 
 const SWrapper = styled.div`
   background: #2d2c33;
@@ -60,14 +69,17 @@ const markerObject = {
     },
   },
 };
-const selectedObject = { object: markerObject, instanceIndex: null };
+
+const interactiveMarkerObject = {
+  ...markerObject,
+  interactionData: { topic: "/foo/bar", originalMessage: markerObject },
+};
+const selectedObject = { object: interactiveMarkerObject, instanceIndex: null };
 
 const sharedProps = {
   selectedObject,
-  interactionData: { topic: "/foo/bar" },
-  isDrawing: false,
-  onClearSelectedObject: () => {},
-  defaultSelectedTab: OBJECT_TAB_TYPE,
+  interactionsTabType: OBJECT_TAB_TYPE,
+  setInteractionsTabType: () => {},
 };
 
 function GlobalVariablesDisplay() {
@@ -106,6 +118,7 @@ function PanelSetupWithData({
 }) {
   return (
     <PanelSetup
+      omitDragAndDrop
       style={{ width: "auto", height: "auto", display: "inline-flex" }}
       fixture={{
         topics: [],
@@ -171,66 +184,21 @@ function PanelSetupWithData({
   );
 }
 
-function AutoOpenCloseExample({
-  setObjectNullFirst,
-  isDrawing,
-  ...rest
-}: {
-  setObjectNullFirst?: boolean,
-  isDrawing?: boolean,
-  defaultSelectedTab?: ?TabType,
-}) {
-  const [object, setObject] = React.useState(setObjectNullFirst ? null : selectedObject);
-
-  React.useEffect(
-    () => {
-      setTimeout(() => {
-        setObject(setObjectNullFirst ? selectedObject : null);
-      }, 10);
-    },
-    [setObjectNullFirst]
-  );
-
-  return (
-    <SWrapper>
-      <PanelSetupWithData
-        disableAutoOpenClickedObject={false}
-        title={<>auto closed the Clicked Object pane</>}
-        style={{ margin: 8, display: "flex", overflow: "hidden" }}>
-        <Interactions {...sharedProps} {...rest} selectedObject={object} isDrawing={!!isDrawing} />
-      </PanelSetupWithData>
-    </SWrapper>
-  );
-}
+const storyParams = { screenshot: { viewport: { width: 1001, height: 1101 } } };
 
 storiesOf("<Interaction>", module)
-  .addDecorator(withScreenshot({ viewport: { width: 1001, height: 1101 } }))
+  .addParameters(storyParams)
   .add("default", () => {
     return (
       <SWrapper>
         <PanelSetupWithData title="Link Tab">
-          <Interactions {...sharedProps} selectedObject={null} defaultSelectedTab={LINKED_VARIABLES_TAB_TYPE} />
+          <Interactions {...sharedProps} selectedObject={null} interactionsTabType={LINKED_VARIABLES_TAB_TYPE} />
         </PanelSetupWithData>
         <PanelSetupWithData title="Default without clicked object">
-          <Interactions {...sharedProps} selectedObject={undefined} defaultSelectedTab={OBJECT_TAB_TYPE} />
+          <Interactions {...sharedProps} selectedObject={undefined} interactionsTabType={OBJECT_TAB_TYPE} />
         </PanelSetupWithData>
         <PanelSetupWithData title="With interactionData">
           <Interactions {...sharedProps} />
-        </PanelSetupWithData>
-        <PanelSetupWithData title="PointCloud">
-          <Interactions
-            {...sharedProps}
-            selectedObject={{
-              instanceIndex: 0,
-              object: {
-                ...selectedObject.object,
-                type: 102,
-                points: [1, 2, 3, 4, 5, 6],
-                colors: [124, 212, 214, 14, 45, 116],
-              },
-            }}
-            interactionData={{ topic: "/foo/bar", associatedTopics: ["/track/foo", "/track/bar"] }}
-          />
         </PanelSetupWithData>
         <PanelSetupWithData
           title="Clicked link button"
@@ -256,6 +224,57 @@ storiesOf("<Interaction>", module)
           <Interactions
             {...sharedProps}
             selectedObject={{ ...selectedObject, interactionData: { topic: "/foo/bar" } }}
+          />
+        </PanelSetupWithData>
+      </SWrapper>
+    );
+  })
+  .add("instanced interactionData", () => {
+    return (
+      <SWrapper>
+        <PanelSetupWithData title="With instanced interactionData">
+          <Interactions
+            {...sharedProps}
+            interactionsTabType={OBJECT_TAB_TYPE}
+            selectedObject={{
+              object: { metadataByIndex: [{ ...markerObject, interactionData: { topic: "/foo/bar" } }] },
+              instanceIndex: 0,
+            }}
+          />
+        </PanelSetupWithData>
+      </SWrapper>
+    );
+  })
+  .add("PointCloud", () => {
+    const cloud1 = { ...selectedObject.object, ...decodeMarker(POINT_CLOUD_MESSAGE) };
+    const cloud2 = { ...selectedObject.object, ...decodeMarker(POINT_CLOUD_WITH_ADDITIONAL_FIELDS) };
+
+    return (
+      <SWrapper>
+        <PanelSetupWithData title="default with point color">
+          <Interactions
+            {...sharedProps}
+            selectedObject={{
+              instanceIndex: 0,
+              object: {
+                ...cloud1,
+                type: 102,
+                interactionData: { topic: "/foo/bar", originalMessage: selectedObject.object },
+              },
+            }}
+          />
+        </PanelSetupWithData>
+        <PanelSetupWithData title="with additional fields">
+          <Interactions
+            {...sharedProps}
+            selectedObject={{
+              instanceIndex: 0,
+              object: {
+                ...cloud2,
+                type: 102,
+                interactionData: { topic: "/foo/bar", originalMessage: selectedObject.object },
+              },
+            }}
           />
         </PanelSetupWithData>
       </SWrapper>
@@ -381,16 +400,69 @@ storiesOf("<Interaction>", module)
         </PanelSetupWithData>
       </SWrapper>
     );
-  })
+  });
+
+const selectObject = () => simulateDragClick([468, 340]);
+const deselectObject = () => simulateDragClick([515, 630]);
+
+storiesOf("<Interaction> / open-close behavior", module)
+  .addParameters({ screenshot: { delay: 2500, ...storyParams.screenshot } })
   .add("auto opens the object details after selectedObject is set", () => {
-    return <AutoOpenCloseExample setObjectNullFirst />;
+    return (
+      <ScreenshotSizedContainer>
+        <MarkerStory
+          onMount={(_) =>
+            setImmediate(async () => {
+              await delay(250);
+              selectObject();
+            })
+          }
+        />
+      </ScreenshotSizedContainer>
+    );
   })
   .add("does not auto open the object details during drawing when it's closed", () => {
-    return <AutoOpenCloseExample setObjectNullFirst isDrawing defaultSelectedTab={null} />;
-  })
-  .add("does not auto close the object details during drawing when it's opened", () => {
-    return <AutoOpenCloseExample setObjectNullFirst isDrawing />;
+    return (
+      <ScreenshotSizedContainer>
+        <MarkerStory
+          onMount={(_) =>
+            setImmediate(async () => {
+              document.querySelectorAll('[data-test="ExpandingToolbar-Drawing tools"]')[0].click(); // Start drawing
+              await delay(250);
+              selectObject();
+            })
+          }
+        />
+      </ScreenshotSizedContainer>
+    );
   })
   .add("auto closes the object details when selectedObject becomes null", () => {
-    return <AutoOpenCloseExample />;
+    return (
+      <ScreenshotSizedContainer>
+        <MarkerStory
+          onMount={(_) =>
+            setImmediate(async () => {
+              await delay(250);
+              selectObject();
+              await tick();
+              deselectObject();
+            })
+          }
+        />
+      </ScreenshotSizedContainer>
+    );
+  })
+  .add("does not open after selectedObject is set if disableAutoOpenClickedObject enabled", () => {
+    return (
+      <ScreenshotSizedContainer>
+        <MarkerStory
+          initialConfigOverride={{ disableAutoOpenClickedObject: true }}
+          onMount={(_) =>
+            setImmediate(async () => {
+              selectObject();
+            })
+          }
+        />
+      </ScreenshotSizedContainer>
+    );
   });

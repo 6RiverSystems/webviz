@@ -1,50 +1,82 @@
 // @flow
 //
-//  Copyright (c) 2018-present, GM Cruise LLC
+//  Copyright (c) 2018-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
 //  You may not use this file except in compliance with the License.
+import { isEqual, groupBy, partition } from "lodash";
 import microMemoize from "micro-memoize";
 import { TimeUtil, type Time } from "rosbag";
+import uuid from "uuid";
 
+// Filename of nodeTransformerWorker is recognized by the server, and given a special header to
+// ensure user-supplied code cannot make network requests.
 // $FlowFixMe - flow does not like workers.
-import UserNodePlayerWorker from "worker-loader!webviz-core/src/players/UserNodePlayer/nodeRuntimeWorker"; // eslint-disable-line
+import NodeDataWorker from "sharedworker-loader?name=nodeTransformerWorker-[hash].[ext]!webviz-core/src/players/UserNodePlayer/nodeTransformerWorker"; // eslint-disable-line
+import signal from "webviz-core/shared/signal";
+import type { SetUserNodeDiagnostics, AddUserNodeLogs, SetUserNodeRosLib } from "webviz-core/src/actions/userNodes";
 // $FlowFixMe - flow does not like workers.
-import NodeDataWorker from "worker-loader!webviz-core/src/players/UserNodePlayer/nodeTransformerWorker"; // eslint-disable-line
-
-import type { SetUserNodeDiagnostics, AddUserNodeLogs, SetUserNodeTrust } from "webviz-core/src/actions/userNodes";
+import UserNodePlayerWorker from "sharedworker-loader?name=nodeRuntimeWorker-[hash].[ext]!webviz-core/src/players/UserNodePlayer/nodeRuntimeWorker"; // eslint-disable-line
+import { type GlobalVariables } from "webviz-core/src/hooks/useGlobalVariables";
 import type {
   AdvertisePayload,
   Message,
   Player,
   PlayerState,
+  PlayerStateActiveData,
   PublishPayload,
   SubscribePayload,
-  PlayerStateActiveData,
   Topic,
+  BobjectMessage,
 } from "webviz-core/src/players/types";
-import { isUserNodeTrusted } from "webviz-core/src/players/UserNodePlayer/nodeSecurity";
 import {
-  DiagnosticSeverity,
-  type NodeData,
-  type NodeRegistration,
   type Diagnostic,
+  DiagnosticSeverity,
+  ErrorCodes,
+  type NodeRegistration,
   type ProcessMessageOutput,
   type RegistrationOutput,
   Sources,
-  ErrorCodes,
+  type UserNodeLog,
 } from "webviz-core/src/players/UserNodePlayer/types";
-import type { UserNodeLog } from "webviz-core/src/players/UserNodePlayer/types";
-import type { UserNodes } from "webviz-core/src/types/panels";
+import { hasTransformerErrors } from "webviz-core/src/players/UserNodePlayer/utils";
+import type { UserNode, UserNodes } from "webviz-core/src/types/panels";
 import type { RosDatatypes } from "webviz-core/src/types/RosDatatypes";
+import { wrapJsObject } from "webviz-core/src/util/binaryObjects";
+import { basicDatatypes } from "webviz-core/src/util/datatypes";
+import { DEFAULT_WEBVIZ_NODE_PREFIX } from "webviz-core/src/util/globalConstants";
 import Rpc from "webviz-core/src/util/Rpc";
-import signal from "webviz-core/src/util/signal";
+import { setupReceiveReportErrorHandler } from "webviz-core/src/util/RpcUtils";
 
-type UserNodeActions = {
+type UserNodeActions = {|
   setUserNodeDiagnostics: SetUserNodeDiagnostics,
   addUserNodeLogs: AddUserNodeLogs,
-  setUserNodeTrust: SetUserNodeTrust,
+  setUserNodeRosLib: SetUserNodeRosLib,
+|};
+
+const rpcFromNewSharedWorker = (worker) => {
+  const port: MessagePort = worker.port;
+  port.start();
+  const rpc = new Rpc(port);
+  setupReceiveReportErrorHandler(rpc);
+  return rpc;
+};
+
+const getBobjectMessage = async (
+  datatypes: RosDatatypes,
+  datatype: string,
+  messagePromise: Promise<?Message>
+): Promise<?BobjectMessage> => {
+  const msg = await messagePromise;
+  if (!msg) {
+    return null;
+  }
+  return {
+    topic: msg.topic,
+    receiveTime: msg.receiveTime,
+    message: wrapJsObject(datatypes, datatype, msg.message),
+  };
 };
 
 // TODO: FUTURE - Performance tests
@@ -55,6 +87,7 @@ export default class UserNodePlayer implements Player {
   _player: Player;
   _nodeRegistrations: NodeRegistration[] = [];
   _subscriptions: SubscribePayload[] = [];
+  _subscribedFormatByTopic: { [topic: string]: Set<"parsedMessages" | "bobjects"> } = {};
   _userNodes: UserNodes = {};
   // TODO: FUTURE - Terminate unused workers (some sort of timeout, for whole array or per rpc)
   // Not sure if there is perf issue with unused workers (may just go idle) - requires more research
@@ -62,13 +95,15 @@ export default class UserNodePlayer implements Player {
   _lastPlayerStateActiveData: ?PlayerStateActiveData;
   _setUserNodeDiagnostics: (nodeId: string, diagnostics: Diagnostic[]) => void;
   _addUserNodeLogs: (nodeId: string, logs: UserNodeLog[]) => void;
-  _setNodeTrust: (nodeId: string, trusted: boolean) => void;
-  _nodeTransformWorker: Rpc = new Rpc(new NodeDataWorker());
-  _userDatatypes: RosDatatypes = {};
+  _setRosLib: (rosLib: string) => void;
+  _nodeTransformRpc: ?Rpc = null;
+  _rosLib: ?string;
+  _globalVariables: GlobalVariables = {};
+  _pendingResetWorkers: ?Promise<void>;
 
   constructor(player: Player, userNodeActions: UserNodeActions) {
     this._player = player;
-    const { setUserNodeDiagnostics, addUserNodeLogs, setUserNodeTrust } = userNodeActions;
+    const { setUserNodeDiagnostics, addUserNodeLogs, setUserNodeRosLib } = userNodeActions;
 
     // TODO(troy): can we make the below action flow better? Might be better to
     // just add an id, and the thing you want to update? Instead of passing in
@@ -77,72 +112,134 @@ export default class UserNodePlayer implements Player {
       setUserNodeDiagnostics({ [nodeId]: { diagnostics } });
     };
     this._addUserNodeLogs = (nodeId: string, logs: UserNodeLog[]) => {
-      addUserNodeLogs({ [nodeId]: { logs } });
+      if (logs.length) {
+        addUserNodeLogs({ [nodeId]: { logs } });
+      }
     };
 
-    this._setNodeTrust = (id: string, trusted: boolean) => {
-      setUserNodeTrust({ id, trusted });
+    this._setRosLib = (rosLib: string) => {
+      this._rosLib = rosLib;
+      // We set this in Redux as the monaco editor needs to refer to it.
+      setUserNodeRosLib(rosLib);
     };
   }
 
-  _getTopics = microMemoize((topics: Topic[], nodeRegistrations: NodeRegistration[]) => {
-    return [...topics, ...nodeRegistrations.map((nodeRegistration) => nodeRegistration.output)];
+  _getTopics = microMemoize((topics: Topic[], nodeTopics: Topic[]) => [...topics, ...nodeTopics], { isEqual });
+  _getDatatypes = microMemoize(
+    (datatypes, nodeRegistrations: NodeRegistration[]) => {
+      const userNodeDatatypes = nodeRegistrations.reduce(
+        (allDatatypes, { nodeData }) => ({ ...allDatatypes, ...nodeData.datatypes }),
+        { ...basicDatatypes }
+      );
+      return { ...datatypes, ...userNodeDatatypes };
+    },
+    { isEqual }
+  );
+  _getNodeRegistration = microMemoize(this._createNodeRegistration, {
+    isEqual,
+    isPromise: true,
+    maxSize: Infinity, // We prune the cache anytime the userNodes change, so it's not *actually* Infinite
   });
 
   // When updating Webviz nodes while paused, we seek to the current time
   // (i.e. invoke _getMessages with an empty array) to refresh messages
   _getMessages = microMemoize(
-    async (messages: Message[]): Promise<Message[]> => {
-      const promises = [];
-      for (const message of messages) {
-        for (const nodeRegistration of this._nodeRegistrations) {
-          if (
-            this._subscriptions.find(({ topic }) => topic === nodeRegistration.output.name) &&
-            nodeRegistration.inputs.includes(message.topic)
-          ) {
-            promises.push(nodeRegistration.processMessage(message));
+    async (
+      parsedMessages: Message[],
+      bobjects: BobjectMessage[],
+      datatypes: RosDatatypes,
+      globalVariables: GlobalVariables,
+      nodeRegistrations: NodeRegistration[]
+    ): Promise<{ parsedMessages: $ReadOnlyArray<Message>, bobjects: $ReadOnlyArray<BobjectMessage> }> => {
+      const parsedMessagesPromises = [];
+      const bobjectPromises = [];
+
+      for (const message of parsedMessages) {
+        for (const nodeRegistration of nodeRegistrations) {
+          const subscriptions = this._subscribedFormatByTopic[nodeRegistration.output.name];
+          if (subscriptions && nodeRegistration.inputs.includes(message.topic)) {
+            const messagePromise = nodeRegistration.processMessage(message, globalVariables);
+            // There should be at most 2 subscriptions.
+            for (const format of subscriptions.values()) {
+              if (format === "parsedMessages") {
+                parsedMessagesPromises.push(messagePromise);
+              } else {
+                bobjectPromises.push(getBobjectMessage(datatypes, nodeRegistration.output.datatype, messagePromise));
+              }
+            }
           }
         }
       }
-      const nodeMessages: Message[] = (await Promise.all(promises)).filter(Boolean);
-      return [...messages, ...nodeMessages].sort((a, b) => TimeUtil.compare(a.receiveTime, b.receiveTime));
+      const [nodeParsedMessages, nodeBobjects] = await Promise.all([
+        (await Promise.all(parsedMessagesPromises)).filter(Boolean),
+        (await Promise.all(bobjectPromises)).filter(Boolean),
+      ]);
+
+      return {
+        parsedMessages: parsedMessages
+          .concat(nodeParsedMessages)
+          .sort((a, b) => TimeUtil.compare(a.receiveTime, b.receiveTime)),
+        bobjects: bobjects.concat(nodeBobjects).sort((a, b) => TimeUtil.compare(a.receiveTime, b.receiveTime)),
+      };
     }
   );
 
-  _getDatatypes = microMemoize((datatypes, userDatatypes) => ({ ...userDatatypes, ...datatypes }));
+  setGlobalVariables(globalVariables: GlobalVariables) {
+    this._globalVariables = globalVariables;
+  }
 
   // Called when userNode state is updated.
   async setUserNodes(userNodes: UserNodes): Promise<void> {
     this._userNodes = userNodes;
 
-    // TODO: Currently the below causes us to reset workers twice, since we are
-    // forcing a 'seek' here.
+    // Prune the nodeDefinition cache so it doesn't grow forever.
+    // We add one to the count so we don't have to recompile nodes if users undo/redo node changes.
+    const maxNodeRegistrationCacheCount = Object.keys(userNodes).length + 1;
+    this._getNodeRegistration.cache.keys.splice(maxNodeRegistrationCacheCount, Infinity);
+    this._getNodeRegistration.cache.values.splice(maxNodeRegistrationCacheCount, Infinity);
+
+    // This code causes us to reset workers twice because the forceSeek resets the workers too
+    // TODO: Only reset workers once
     return this._resetWorkers().then(() => {
-      const currentTime = this._lastPlayerStateActiveData && this._lastPlayerStateActiveData.currentTime;
-      const isPlaying = this._lastPlayerStateActiveData && this._lastPlayerStateActiveData.isPlaying;
-      if (!currentTime || isPlaying) {
-        return;
+      this.setSubscriptions(this._subscriptions);
+      const { currentTime = null, isPlaying = false } = this._lastPlayerStateActiveData || {};
+      if (currentTime && !isPlaying) {
+        this._player.seekPlayback(currentTime);
       }
-      this._player.seekPlayback(currentTime);
     });
   }
 
   // Defines the inputs/outputs and worker interface of a user node.
-  _getNodeRegistration(nodeId: string, nodeData: NodeData): NodeRegistration {
-    const { inputTopics, outputTopic, transpiledCode: nodeCode, outputDatatype, datatypes } = nodeData;
-    // Update datatypes for the player state to consume.
-    this._userDatatypes = { ...this._userDatatypes, ...datatypes };
+  async _createNodeRegistration(nodeId: string, userNode: UserNode): Promise<NodeRegistration> {
+    // Pass all the nodes a set of basic datatypes that we know how to render.
+    // These could be overwritten later by bag datatypes, but these datatype definitions should be very stable.
+    const { topics = [], datatypes = {} } = this._lastPlayerStateActiveData || {};
+    const nodeDatatypes = { ...basicDatatypes, ...datatypes };
+
+    const rosLib = await this._getRosLib();
+    const { name, sourceCode } = userNode;
+    const transformMessage = { name, sourceCode, topics, rosLib, datatypes: nodeDatatypes };
+    const transformWorker = this._getTransformWorker();
+    const nodeData = await transformWorker.send("transform", transformMessage);
+    const { inputTopics, outputTopic, transpiledCode, projectCode, outputDatatype } = nodeData;
+
     let rpc;
-    const terminateSignal = signal<void>();
+    let terminateSignal = signal<void>();
     return {
+      nodeId,
+      nodeData,
       inputs: inputTopics,
       output: { name: outputTopic, datatype: outputDatatype },
       processMessage: async (message: Message) => {
+        // We allow _resetWorkers to "cancel" the processing by creating a new signal every time we process a message
+        terminateSignal = signal<void>();
+
         // Register the node within a web worker to be executed.
         if (!rpc) {
-          rpc = this._unusedNodeRuntimeWorkers.pop() || new Rpc(new UserNodePlayerWorker());
+          rpc = this._unusedNodeRuntimeWorkers.pop() || rpcFromNewSharedWorker(new UserNodePlayerWorker(uuid.v4()));
           const { error, userNodeDiagnostics, userNodeLogs } = await rpc.send<RegistrationOutput>("registerNode", {
-            nodeCode,
+            projectCode,
+            nodeCode: transpiledCode,
           });
           if (error) {
             this._setUserNodeDiagnostics(nodeId, [
@@ -160,45 +257,51 @@ export default class UserNodePlayer implements Player {
         }
 
         const result = await Promise.race([
-          rpc.send<ProcessMessageOutput>("processMessage", { message }),
+          rpc.send<ProcessMessageOutput>("processMessage", { message, globalVariables: this._globalVariables }),
           terminateSignal,
         ]);
-
-        if (result && result.error) {
-          this._setUserNodeDiagnostics(nodeId, [
-            {
-              source: Sources.Runtime,
-              severity: DiagnosticSeverity.Error,
-              message: result.error,
-              code: ErrorCodes.RUNTIME,
-            },
-          ]);
+        if (!result) {
           return;
         }
 
-        if (result) {
-          this._addUserNodeLogs(nodeId, result.userNodeLogs);
-        }
+        const diagnostics = result.error
+          ? [
+              {
+                source: Sources.Runtime,
+                severity: DiagnosticSeverity.Error,
+                message: result.error,
+                code: ErrorCodes.RUNTIME,
+              },
+            ]
+          : [];
+        this._setUserNodeDiagnostics(nodeId, diagnostics);
+        this._addUserNodeLogs(nodeId, result.userNodeLogs);
 
         // TODO: FUTURE - surface runtime errors / infinite loop errors
-        if (!result || !result.message) {
+        if (!result.message) {
           return;
         }
         return {
           topic: outputTopic,
-          datatype: nodeData.outputDatatype,
-          op: "message",
-          message: result.message,
           receiveTime: message.receiveTime,
+          message: result.message,
         };
       },
       terminate: () => {
         terminateSignal.resolve();
         if (rpc) {
           this._unusedNodeRuntimeWorkers.push(rpc);
+          rpc = null;
         }
       },
     };
+  }
+
+  _getTransformWorker(): Rpc {
+    if (!this._nodeTransformRpc) {
+      this._nodeTransformRpc = rpcFromNewSharedWorker(new NodeDataWorker(uuid.v4()));
+    }
+    return this._nodeTransformRpc;
   }
 
   // We need to reset workers in a variety of circumstances:
@@ -209,10 +312,24 @@ export default class UserNodePlayer implements Player {
   // For the time being, resetWorkers is a catchall for these circumstances. As
   // performance bottlenecks are identified, it will be subject to change.
   async _resetWorkers() {
+    if (!this._lastPlayerStateActiveData) {
+      return;
+    }
+
+    // Make sure that we only run this function once at a time, but using this instead of `debouncePromise` so that it
+    // returns a promise.
+    if (this._pendingResetWorkers) {
+      await this._pendingResetWorkers;
+    }
+    const pending = signal();
+    this._pendingResetWorkers = pending;
+
     // This early return is an optimization measure so that the
     // `nodeRegistrations` array is not re-defined, which will invalidate
     // downstream caches. (i.e. `this._getTopics`)
     if (!this._nodeRegistrations.length && !Object.entries(this._userNodes).length) {
+      pending.resolve();
+      this._pendingResetWorkers = null;
       return;
     }
 
@@ -220,96 +337,150 @@ export default class UserNodePlayer implements Player {
       nodeRegistration.terminate();
     }
 
-    const nodeRegistrations: NodeRegistration[] = [];
-    for (const [nodeId, nodeObj] of Object.entries(this._userNodes)) {
-      const node = ((nodeObj: any): { name: string, sourceCode: string });
-      if (!isUserNodeTrusted({ id: nodeId, sourceCode: node.sourceCode })) {
-        this._setNodeTrust(nodeId, false);
-        continue;
-      } else {
-        this._setNodeTrust(nodeId, true);
-      }
+    const allNodeRegistrations = await Promise.all(
+      Object.keys(this._userNodes).map(async (nodeId) => this._getNodeRegistration(nodeId, this._userNodes[nodeId]))
+    );
 
-      const { topics = [], datatypes: playerDatatypes = {} } = this._lastPlayerStateActiveData || {};
-      const nodeData = await this._nodeTransformWorker.send("transform", {
-        name: node.name,
-        sourceCode: node.sourceCode,
-        playerInfo: { topics, playerDatatypes },
-        priorRegisteredTopics: nodeRegistrations.map(({ output }) => output),
-      });
-      const { diagnostics } = nodeData;
+    // Filter out nodes with compilation errors
+    const nodeRegistrations: Array<NodeRegistration> = allNodeRegistrations.filter(
+      (nodeRegistration) => !hasTransformerErrors(nodeRegistration.nodeData)
+    );
 
-      this._setUserNodeDiagnostics(nodeId, diagnostics);
-      if (diagnostics.some(({ severity }) => severity === DiagnosticSeverity.Error)) {
-        continue;
-      }
-      nodeRegistrations.push(this._getNodeRegistration(nodeId, nodeData));
+    // Create diagnostic errors if more than one node outputs to the same topic
+    const nodesByOutputTopic = groupBy(nodeRegistrations, ({ output }) => output.name);
+    const [validNodeRegistrations, duplicateNodeRegistrations] = partition(
+      nodeRegistrations,
+      (nodeReg) => nodeReg === nodesByOutputTopic[nodeReg.output.name][0]
+    );
+    duplicateNodeRegistrations.forEach(({ nodeId, nodeData }) => {
+      this._setUserNodeDiagnostics(nodeId, [
+        ...nodeData.diagnostics,
+        {
+          severity: DiagnosticSeverity.Error,
+          message: `Output "${nodeData.outputTopic}" must be unique`,
+          source: Sources.OutputTopicChecker,
+          code: ErrorCodes.OutputTopicChecker.NOT_UNIQUE,
+        },
+      ]);
+    });
+
+    this._nodeRegistrations = validNodeRegistrations;
+    this._nodeRegistrations.forEach(({ nodeId }) => this._setUserNodeDiagnostics(nodeId, []));
+
+    this._pendingResetWorkers = null;
+    pending.resolve();
+  }
+
+  async _getRosLib(): Promise<string> {
+    // We only generate the roslib once, because available topics and datatypes should never change. If they do, for
+    // a source or player change, we destroy this player and create a new one.
+    if (this._rosLib) {
+      return this._rosLib;
     }
 
-    this._nodeRegistrations = nodeRegistrations;
+    if (!this._lastPlayerStateActiveData) {
+      throw new Error("_getRosLib was called before `_lastPlayerStateActiveData` set");
+    }
+
+    const { topics, datatypes } = this._lastPlayerStateActiveData;
+    const transformWorker = this._getTransformWorker();
+    const rosLib = await transformWorker.send("generateRosLib", {
+      topics,
+      datatypes,
+    });
+    this._setRosLib(rosLib);
+
+    return rosLib;
   }
 
   setListener(listener: (PlayerState) => Promise<void>) {
     this._player.setListener(async (playerState: PlayerState) => {
       const { activeData } = playerState;
-      if (activeData) {
-        const { messages, topics, datatypes } = activeData;
+      if (!activeData) {
+        return listener(playerState);
+      }
+      const { messages, topics, datatypes, bobjects } = activeData;
 
-        // For resetting node state after seeking.
-        // TODO: Make resetWorkers more efficient in this case since we don't
-        // need to recompile/validate anything.
-        if (
-          this._lastPlayerStateActiveData &&
-          activeData.lastSeekTime !== this._lastPlayerStateActiveData.lastSeekTime
-        ) {
-          await this._resetWorkers();
-        }
-        // If we do not have active player data from a previous call, then our
-        // player just spun up, meaning we should re-run our user nodes in case
-        // they have inputs that now exist in the current player context.
-        if (!this._lastPlayerStateActiveData) {
-          this._lastPlayerStateActiveData = activeData;
-          await this._resetWorkers().then(() => {
-            this.setSubscriptions(this._subscriptions);
-          });
-        }
-
-        const newPlayerState = {
-          ...playerState,
-          activeData: {
-            ...activeData,
-            messages: await this._getMessages(messages),
-            topics: this._getTopics(topics, this._nodeRegistrations),
-            datatypes: this._getDatatypes(datatypes, this._userDatatypes),
-          },
-        };
-
-        this._lastPlayerStateActiveData = playerState.activeData;
-
-        return listener(newPlayerState);
+      // Reset node state after seeking
+      if (activeData.lastSeekTime !== this._lastPlayerStateActiveData?.lastSeekTime) {
+        await this._resetWorkers();
+      }
+      // If we do not have active player data from a previous call, then our
+      // player just spun up, meaning we should re-run our user nodes in case
+      // they have inputs that now exist in the current player context.
+      if (!this._lastPlayerStateActiveData) {
+        this._lastPlayerStateActiveData = activeData;
+        await this._resetWorkers();
+        this.setSubscriptions(this._subscriptions);
+        this.requestBackfill();
       }
 
-      return listener(playerState);
+      const allDatatypes = this._getDatatypes(datatypes, this._nodeRegistrations);
+      const { parsedMessages, bobjects: augmentedBobjects } = await this._getMessages(
+        messages,
+        bobjects,
+        allDatatypes,
+        this._globalVariables,
+        this._nodeRegistrations
+      );
+
+      const newPlayerState = {
+        ...playerState,
+        activeData: {
+          ...activeData,
+          messages: parsedMessages,
+          bobjects: augmentedBobjects,
+          topics: this._getTopics(topics, this._nodeRegistrations.map((nodeRegistration) => nodeRegistration.output)),
+          datatypes: allDatatypes,
+        },
+      };
+
+      this._lastPlayerStateActiveData = playerState.activeData;
+      return listener(newPlayerState);
     });
   }
 
   setSubscriptions(subscriptions: SubscribePayload[]) {
     this._subscriptions = subscriptions;
 
+    const mappedTopics: string[] = [];
     const realTopicSubscriptions: SubscribePayload[] = [];
+    const nodeSubscriptions: SubscribePayload[] = [];
     for (const subscription of subscriptions) {
+      // For performance, only check topics that start with DEFAULT_WEBVIZ_NODE_PREFIX.
+      if (!subscription.topic.startsWith(DEFAULT_WEBVIZ_NODE_PREFIX)) {
+        realTopicSubscriptions.push(subscription);
+        continue;
+      }
+
+      nodeSubscriptions.push(subscription);
+
+      // When subscribing to the same node multiple times, only subscribe to the underlying
+      // topics once. This is not strictly necessary, but it makes debugging a bit easier.
+      if (mappedTopics.includes(subscription.topic)) {
+        continue;
+      }
+      mappedTopics.push(subscription.topic);
+
       const nodeRegistration = this._nodeRegistrations.find((info) => info.output.name === subscription.topic);
       if (nodeRegistration) {
         for (const inputTopic of nodeRegistration.inputs) {
           realTopicSubscriptions.push({
             topic: inputTopic,
             requester: { type: "node", name: nodeRegistration.output.name },
+            // User nodes won't understand bobjects.
+            format: "parsedMessages",
           });
         }
-      } else {
-        realTopicSubscriptions.push(subscription);
       }
     }
+
+    const subscribedFormatByTopic = {};
+    for (const { topic, format } of nodeSubscriptions) {
+      subscribedFormatByTopic[topic] = subscribedFormatByTopic[topic] || new Set();
+      subscribedFormatByTopic[topic].add(format);
+    }
+    this._subscribedFormatByTopic = subscribedFormatByTopic;
 
     this._player.setSubscriptions(realTopicSubscriptions);
   }
@@ -319,6 +490,9 @@ export default class UserNodePlayer implements Player {
       nodeRegistration.terminate();
     }
     this._player.close();
+    if (this._nodeTransformRpc) {
+      this._nodeTransformRpc.send("close");
+    }
   };
 
   setPublishers = (publishers: AdvertisePayload[]) => this._player.setPublishers(publishers);
@@ -326,5 +500,6 @@ export default class UserNodePlayer implements Player {
   startPlayback = () => this._player.startPlayback();
   pausePlayback = () => this._player.pausePlayback();
   setPlaybackSpeed = (speed: number) => this._player.setPlaybackSpeed(speed);
-  seekPlayback = (time: Time) => this._player.seekPlayback(time);
+  seekPlayback = (time: Time, backfillDuration: ?Time) => this._player.seekPlayback(time, backfillDuration);
+  requestBackfill = () => this._player.requestBackfill();
 }

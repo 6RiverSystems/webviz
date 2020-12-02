@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2018-present, GM Cruise LLC
+//  Copyright (c) 2018-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -12,7 +12,12 @@ import thunk from "redux-thunk";
 
 import type { State } from "webviz-core/src/reducers";
 
-const configureStore = (reducer: () => any, middleware?: Array<any> = [], history: any, preloadedState?: State) => {
+const configureStore = (
+  reducer: (any, any) => any,
+  middleware?: Array<any> = [],
+  history: any,
+  preloadedState?: State
+) => {
   const store = createStore<*, *, *>(
     reducer,
     preloadedState,

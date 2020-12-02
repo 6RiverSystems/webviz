@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2018-present, GM Cruise LLC
+//  Copyright (c) 2018-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -9,7 +9,7 @@
 import * as React from "react";
 import styled from "styled-components";
 
-import { colors } from "webviz-core/src/util/colors";
+import { colors } from "webviz-core/src/util/sharedStyleConstants";
 
 const { useRef, useState, useLayoutEffect, useCallback } = React;
 
@@ -98,24 +98,23 @@ export default function TextField({
   );
 
   const validate = useCallback(
-    (value) => {
-      const validationResult = validator(value);
+    (val) => {
+      const validationResult = validator(val);
       if (validationResult) {
         setError(validationResult);
       } else {
         setError(null);
-        onChange(value);
+        onChange(val);
       }
     },
     [onChange, validator]
   );
 
   const handleChange = useCallback(
-    (ev) => {
-      const value = ev.target.value;
-      setInputStr(value);
+    ({ target }) => {
+      setInputStr(target.value);
       if (!validateOnBlur) {
-        validate(value);
+        validate(target.value);
       }
     },
     [validate, validateOnBlur]
@@ -131,7 +130,7 @@ export default function TextField({
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [onBlur, validate, validateOnBlur]
+    [inputStr, onBlur, validate, validateOnBlur]
   );
 
   // only show red border when there is some input and it's not valid
@@ -155,9 +154,9 @@ export default function TextField({
 }
 
 TextField.defaultProps = {
-  validator: (value) => undefined,
-  onChange: (value) => {},
-  onBlur: (value) => {},
+  validator: () => undefined,
+  onChange: () => {},
+  onBlur: () => {},
   inputStyle: {},
   style: {},
 };

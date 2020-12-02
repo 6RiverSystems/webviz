@@ -1,6 +1,6 @@
 // @flow
 //
-//  Copyright (c) 2018-present, GM Cruise LLC
+//  Copyright (c) 2018-present, Cruise LLC
 //
 //  This source code is licensed under the Apache License, Version 2.0,
 //  found in the LICENSE file in the root directory of this source tree.
@@ -8,7 +8,15 @@
 
 import { type Time } from "rosbag";
 
-import type { Progress, Topic } from "webviz-core/src/players/types";
+import type {
+  BobjectMessage,
+  Progress,
+  Topic,
+  Message,
+  MessageDefinitionsByTopic,
+  ParsedMessageDefinitionsByTopic,
+  TypedMessage,
+} from "webviz-core/src/players/types";
 import type { RosDatatypes } from "webviz-core/src/types/RosDatatypes";
 
 // `DataProvider` describes a more specific kind of data ingesting than `Player`, namely ingesting
@@ -42,6 +50,38 @@ import type { RosDatatypes } from "webviz-core/src/types/RosDatatypes";
 // `_measureDataProviders` URL param, which causes every DataProvider to be wrapped in a
 // MeasureDataProvider.
 
+export type GetMessagesTopics = $ReadOnly<{|
+  parsedMessages?: ?$ReadOnlyArray<string>,
+  rosBinaryMessages?: ?$ReadOnlyArray<string>,
+  bobjects?: ?$ReadOnlyArray<string>,
+|}>;
+
+export type GetMessagesResult = $ReadOnly<{|
+  parsedMessages: ?$ReadOnlyArray<Message>,
+  rosBinaryMessages: ?$ReadOnlyArray<TypedMessage<ArrayBuffer>>,
+  bobjects: ?$ReadOnlyArray<BobjectMessage>,
+|}>;
+
+export type ParsedMessageDefinitions = $ReadOnly<{|
+  type: "parsed",
+  datatypes: RosDatatypes,
+  // Note that these might not be "complete" - rely on the parsedMessageDefinitionsByTopic for the
+  // complete list of message definitions!
+  messageDefinitionsByTopic: MessageDefinitionsByTopic,
+  parsedMessageDefinitionsByTopic: ParsedMessageDefinitionsByTopic,
+|}>;
+export type MessageDefinitions =
+  | $ReadOnly<{|
+      type: "raw",
+      // The ROS message definitions for each provided topic. Entries are required for topics that are
+      // available through the data provider in binary format, either directly through getMessages calls
+      // or indirectly through the player progress mechanism.
+      messageDefinitionsByTopic: MessageDefinitionsByTopic,
+      // Optional, the md5 sum of the message definition by topic.
+      messageDefinitionMd5SumByTopic?: { [string]: string },
+    |}>
+  | ParsedMessageDefinitions;
+
 // We disable no-use-before-define so we can have the most important types at the top.
 /* eslint-disable no-use-before-define */
 export interface DataProvider {
@@ -58,7 +98,7 @@ export interface DataProvider {
 
   // Do any up-front initializing of the provider, and takes an optional extension point for
   // callbacks that only some implementations care about. May only be called once. If there's an
-  // error during initialization, it must be reported using `reportError` (even in Web Workers).
+  // error during initialization, it must be reported using `sendNotification` (even in Web Workers).
   // If the error is unrecoverable, just never resolve the promise.
   // TODO(JP): It would be better to reject the promise explicitly in case of unrecoverable errors,
   // so we can update the UI appropriately.
@@ -69,31 +109,24 @@ export interface DataProvider {
   // `receiveTime`. May not return any messages outside the time range, or outside the requested
   // list of topics. Must always return the same messages for a given time range, including when
   // querying overlapping time ranges multiple times.
-  getMessages(start: Time, end: Time, topics: string[]): Promise<DataProviderMessage[]>;
+  getMessages(start: Time, end: Time, topics: GetMessagesTopics): Promise<GetMessagesResult>;
 
   // Close the provider (e.g. close any connections to a server). Must be called only after
   // `initialize` has finished.
   close(): Promise<void>;
 }
 
-// Message type used within DataProviders.
-// TODO(JP): Unify with `Message`; see TODO comment there.
-export type TypedDataProviderMessage<T> = {|
-  topic: string,
-  receiveTime: Time,
-  message: T,
-|};
-export type DataProviderMessage = TypedDataProviderMessage<any>;
-
 export type InitializationResult = {|
   start: Time, // Inclusive (time of first message).
   end: Time, // Inclusive (time of last message).
   topics: Topic[],
-  datatypes: RosDatatypes, // Must be "complete", just as in the definition of `Player`.
 
-  // If returning raw messages to be parsed by `ParseMessagesDataProvider`, the DataProvider should
-  // also return `connectionsByTopic`, so the right rosbag `Reader` can be instantiated.
-  connectionsByTopic?: ?{ [topic: string]: Connection },
+  // Signals whether the messages returned from calls to getMessages are parsed into Javascript
+  // objects or are returned in ROS binary format.
+  // TODO(steel/hernan): Replace topics and providesParsedMessages with a GetMessagesResult, and
+  // update the ApiCheckerDataProvider to enforce it.
+  providesParsedMessages: boolean,
+  messageDefinitions: MessageDefinitions,
 |};
 
 export type ExtensionPoint = {|
@@ -106,10 +139,45 @@ export type ExtensionPoint = {|
   reportMetadataCallback: (DataProviderMetadata) => void,
 |};
 
+export type InitializationPerformanceMetadata = $ReadOnly<{|
+  type: "initializationPerformance",
+  dataProviderType: string,
+  metrics: { [metricName: string]: string | number },
+|}>;
+
+export type AverageThroughput = $ReadOnly<{|
+  type: "average_throughput",
+  totalSizeOfMessages: number, // bytes
+  numberOfMessages: number,
+  requestedRangeDuration: Time,
+  receivedRangeDuration: Time, // Connections could be canceled on seeks.
+  topics: $ReadOnlyArray<string>,
+  totalTransferTime: Time,
+|}>;
+
+// To report chunks of data received in realtime. Aggregation can happen downstream. For bags, this
+// includes all data -- not just data on relevant topics.
+export type ReceivedBytes = $ReadOnly<{|
+  type: "received_bytes",
+  bytes: number,
+|}>;
+
+export type DataProviderStall = $ReadOnly<{|
+  type: "data_provider_stall",
+  stallDuration: Time,
+  requestTimeUntilStall: Time,
+  transferTimeUntilStall: Time,
+  bytesReceivedBeforeStall: number,
+|}>;
+
 export type DataProviderMetadata =
   // Report whether or not the DataProvider is reconnecting to some external server. Used to show a
   // loading indicator in the UI.
-  {| type: "updateReconnecting", reconnecting: boolean |};
+  | $ReadOnly<{| type: "updateReconnecting", reconnecting: boolean |}>
+  | AverageThroughput
+  | InitializationPerformanceMetadata
+  | ReceivedBytes
+  | DataProviderStall;
 
 // A ROS bag "connection", used for parsing messages.
 export type Connection = {|
