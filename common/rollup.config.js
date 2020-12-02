@@ -25,7 +25,7 @@ const getBabelOptions = ({ useESModules }) => ({
 const input = "src/index.js";
 const libraryName = "ReglWorldview";
 
-const globals = { react: "React", "react-dom": "ReactDOM" };
+const globals = { react: "React", "react-dom": "ReactDOM", lodash: "lodash" };
 const isExternal = (id) => !id.startsWith(".") && !id.startsWith("/");
 
 export default function(pkg) {
